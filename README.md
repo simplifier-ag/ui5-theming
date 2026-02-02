@@ -1,6 +1,6 @@
 # OpenUI5 Theme Designer
 
-Ein Tool zum Erstellen und Exportieren von benutzerdefinierten OpenUI5 Themes für Version 1.96.40.
+A tool for creating and exporting custom OpenUI5 themes for version 1.96.40.
 
 ## 🚀 Quick Start
 
@@ -9,32 +9,32 @@ npm install
 npm run start:all
 ```
 
-Öffnet automatisch http://localhost:8080/index.html - fertig! 🎉
+Automatically opens http://localhost:8080/index.html - done! 🎉
 
 ## Features
 
-- **Brand Color Anpassung**: Setze deine Unternehmensfarbe als Brand Color
-- **Focus Color**: Farbe für fokussierte Elemente (Buttons, Inputs, etc.)
-- **Shell Color**: Farbe für die Shell/Header-Bar (Theme-spezifischer Default)
-- **Custom CSS**: Füge beliebiges CSS hinzu für erweiterte Anpassungen
-- **Live Preview**: Vorschau der Änderungen direkt in der Anwendung
-- **Theme Management**: Speichere, bearbeite und verwalte mehrere Themes
-- **OAuth Authentication**: Multi-User Support mit Keycloak Integration
-- **Theme Export**: Exportiere das Theme als ZIP-Datei für die Verwendung in deinen UI5 Apps
-- **Theme Import**: Importiere bereits exportierte Themes
+- **Brand Color Customization**: Set your company color as the brand color
+- **Focus Color**: Color for focused elements (buttons, inputs, etc.)
+- **Shell Color**: Color for the shell/header bar (theme-specific default)
+- **Custom CSS**: Add custom CSS for advanced customizations
+- **Live Preview**: Preview changes directly in the application
+- **Theme Management**: Save, edit, and manage multiple themes
+- **OAuth Authentication**: Multi-user support with Keycloak integration
+- **Theme Export**: Export themes as ZIP files for use in your UI5 apps
+- **Theme Import**: Import previously exported themes
 
-## Architektur
+## Architecture
 
-Das Projekt besteht aus zwei Komponenten:
+The project consists of two components:
 
-1. **Frontend (OpenUI5 App)**: UI5 1.96.40 Anwendung auf Port 8080
-2. **Backend (Node.js Server)**: Theme-Compiler-API auf Port 3001
+1. **Frontend (OpenUI5 App)**: UI5 1.96.40 application on port 8080
+2. **Backend (Node.js Server)**: Theme compiler API on port 3001
 
-**Docker:** Multi-Container Setup mit Theme Designer App und separatem Theme Builder Service verfügbar.
+**Docker:** Multi-container setup with Theme Designer App and separate Theme Builder Service available.
 
 ## Description
 
-Dieses Tool ermöglicht es, benutzerdefinierte OpenUI5 Themes zu erstellen, ohne manuell LESS-Dateien bearbeiten zu müssen. Die Brand Color und andere Designparameter können über eine benutzerfreundliche Oberfläche angepasst werden.
+This tool enables creating custom OpenUI5 themes without manually editing LESS files. Brand colors and other design parameters can be customized through a user-friendly interface.
 
 ## Requirements
 
@@ -43,35 +43,35 @@ Dieses Tool ermöglicht es, benutzerdefinierte OpenUI5 Themes zu erstellen, ohne
 
 ## Installation
 
-Ein einziger Befehl installiert alles (UI5 App + Backend Server):
+A single command installs everything (UI5 App + Backend Server):
 ```bash
 npm install
 ```
 
-Das `postinstall` Script installiert automatisch auch die Server-Dependencies.
+The `postinstall` script automatically installs server dependencies as well.
 
-## Starten
+## Getting Started
 
-### Empfohlen - Alles mit einem Befehl:
+### Recommended - Start Everything with One Command:
 
 ```bash
 npm run start:all
 ```
 
-Dieser Befehl startet automatisch:
-- Backend API Server auf Port 3001
-- OpenUI5 App auf Port 8080
+This command automatically starts:
+- Backend API server on port 3001
+- OpenUI5 app on port 8080
 
-Die App öffnet sich automatisch im Browser unter http://localhost:8080/index.html
+The app opens automatically in your browser at http://localhost:8080/index.html
 
-### Alternative - Einzeln starten:
+### Alternative - Start Components Individually:
 
 **Option 1 - Shell Script (Unix/Mac):**
 ```bash
 ./start-all.sh
 ```
 
-**Option 2 - Manuell in separaten Terminals:**
+**Option 2 - Manual in Separate Terminals:**
 
 Terminal 1 - Backend Server:
 ```bash
@@ -90,37 +90,37 @@ start-all.bat
 
 ## Docker Deployment
 
-Für Production-Deployments mit Docker:
+For production deployments with Docker:
 
 ```bash
 docker pull <your-org>/theme-designer:latest
 docker run -d -p 8080:8080 <your-org>/theme-designer:latest
 ```
 
-Die App ist dann erreichbar unter http://localhost:8080
+The app is then accessible at http://localhost:8080
 
-**Environment Variables:** Siehe `.env.example` für OAuth-Konfiguration und weitere Optionen.
+**Environment Variables:** See `.env.example` for OAuth configuration and other options.
 
-## Verwendung
+## Usage
 
-1. **Anmelden** (optional): Bei aktiviertem OAuth mit Keycloak anmelden
-2. **Theme erstellen**: Neues Theme in der Theme-Übersicht anlegen
-3. **Base Theme wählen**: Wähle das Basis-Theme aus (sap_horizon, sap_fiori_3)
-4. **Brand Color setzen**: Gib deine Hauptfarbe ein (HEX-Format: #007bff)
-5. **Focus Color anpassen**: Wird automatisch berechnet, kann aber überschrieben werden
-6. **Shell Color setzen**: Farbe für Header/Shell (Default abhängig vom Base Theme)
-7. **Custom CSS hinzufügen**: Optional für erweiterte Anpassungen
-8. **Live Preview**: Änderungen werden automatisch in der Preview angezeigt
-9. **Theme speichern**: Theme wird in Datenbank gespeichert
-10. **Theme exportieren**: Klicke auf "Export Theme" um eine ZIP-Datei zu erhalten
+1. **Sign In** (optional): Sign in with Keycloak if OAuth is enabled
+2. **Create Theme**: Create a new theme in the theme overview
+3. **Select Base Theme**: Choose the base theme (sap_horizon, sap_fiori_3)
+4. **Set Brand Color**: Enter your main color (HEX format: #007bff)
+5. **Adjust Focus Color**: Automatically calculated, can be overridden
+6. **Set Shell Color**: Color for header/shell (default depends on base theme)
+7. **Add Custom CSS**: Optional for advanced customizations
+8. **Live Preview**: Changes are automatically displayed in the preview
+9. **Save Theme**: Theme is saved to database
+10. **Export Theme**: Click "Export Theme" to get a ZIP file
 
 ## Theme Installation
 
-Nach dem Export:
+After export:
 
-1. Entpacke die ZIP-Datei
-2. Kopiere den Theme-Ordner in deine UI5 App (z.B. nach `webapp/themes/`)
-3. Aktiviere das Theme in deiner `index.html`:
+1. Extract the ZIP file
+2. Copy the theme folder to your UI5 app (e.g., to `webapp/themes/`)
+3. Activate the theme in your `index.html`:
 
 ```html
 <script id="sap-ui-bootstrap"
@@ -134,7 +134,7 @@ Nach dem Export:
 
 ### POST /api/compile-theme
 
-Kompiliert ein Theme basierend auf den angegebenen Parametern.
+Compiles a theme based on the specified parameters.
 
 **Request Body:**
 ```json
@@ -148,11 +148,11 @@ Kompiliert ein Theme basierend auf den angegebenen Parametern.
 }
 ```
 
-**Response**: ZIP-Datei mit dem kompilierten Theme
+**Response**: ZIP file with the compiled theme
 
 ### POST /api/preview-theme
 
-Kompiliert Theme-CSS für Live-Preview (nur 3 Libraries, schneller).
+Compiles theme CSS for live preview (only 3 libraries, faster).
 
 **Request Body:**
 ```json
@@ -165,26 +165,26 @@ Kompiliert Theme-CSS für Live-Preview (nur 3 Libraries, schneller).
 }
 ```
 
-**Response**: Kompiliertes CSS als text/css
+**Response**: Compiled CSS as text/css
 
 ### GET /api/health
 
-Health Check Endpoint
+Health check endpoint
 
-## Technologie-Stack
+## Technology Stack
 
 - **Frontend**: OpenUI5 1.96.40 (JavaScript)
 - **Backend**: Node.js, Express
-- **Authentication**: Passport.js mit OAuth 2.0 / OpenID Connect (Keycloak)
+- **Authentication**: Passport.js with OAuth 2.0 / OpenID Connect (Keycloak)
 - **Database**: better-sqlite3 (SQLite)
 - **Theme Compiler**: less-openui5
-- **Weitere Packages**: archiver, cors, body-parser, concurrently, express-session
+- **Additional Packages**: archiver, cors, body-parser, concurrently, express-session
 
 ## Environment Variables
 
 ### OAuth Authentication (Optional)
 
-Wenn OAuth/OIDC Authentifizierung verwendet werden soll:
+If OAuth/OIDC authentication should be used:
 
 ```bash
 KEYCLOAK_URL=https://your-keycloak-instance.com
@@ -194,37 +194,37 @@ KEYCLOAK_CLIENT_SECRET=your-client-secret
 SESSION_SECRET=your-random-secret  # Generate: openssl rand -base64 32
 ```
 
-### Weitere (Optional)
+### Additional (Optional)
 
 ```bash
 PORT=3001                    # API server port (default: 3001)
 NODE_ENV=production          # Node environment (default: development)
 ```
 
-**Hinweis**: Ohne OAuth können Themes lokal erstellt werden (User: 'anonymous').
+**Note**: Without OAuth, themes can be created locally (User: 'anonymous').
 
-## Verfügbare npm Scripts
+## Available npm Scripts
 
-| Script | Beschreibung |
-|--------|--------------|
-| `npm install` | Installiert alle Dependencies (UI5 + Server) |
-| `npm run start:all` | ⭐ Startet Backend + Frontend gleichzeitig |
-| `npm run start:ui` | Startet nur die UI5 App (Port 8080) |
-| `npm run start:server` | Startet nur den Backend Server (Port 3001) |
-| `npm start` | Alias für `start:ui` |
-| `npm run build` | Baut die UI5 App |
-| `npm run lint` | Linter für Code-Qualität |
-| `npm test` | Führt Tests aus |
+| Script | Description |
+|--------|-------------|
+| `npm install` | Installs all dependencies (UI5 + Server) |
+| `npm run start:all` | ⭐ Starts backend + frontend simultaneously |
+| `npm run start:ui` | Starts only the UI5 app (port 8080) |
+| `npm run start:server` | Starts only the backend server (port 3001) |
+| `npm start` | Alias for `start:ui` |
+| `npm run build` | Builds the UI5 app |
+| `npm run lint` | Linter for code quality |
+| `npm test` | Runs tests |
 
-## Struktur des exportierten Themes
+## Structure of Exported Theme
 
 ```
 my_custom_theme.zip
 ├── README.md
 └── my_custom_theme/
-    ├── library.css          # Kompiliertes CSS
+    ├── library.css          # Compiled CSS
     ├── library-RTL.css      # Right-to-Left CSS
-    ├── library-parameters.json  # Theme Parameter
+    ├── library-parameters.json  # Theme Parameters
     └── .theming             # Theme Metadata
 ```
 
