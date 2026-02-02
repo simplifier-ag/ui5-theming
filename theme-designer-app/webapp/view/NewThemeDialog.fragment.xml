@@ -1,0 +1,80 @@
+<core:FragmentDefinition
+    xmlns="sap.m"
+    xmlns:core="sap.ui.core"
+    xmlns:form="sap.ui.layout.form">
+    <Dialog
+        id="newThemeDialog"
+        title="Create New Theme"
+        contentWidth="500px">
+        <content>
+            <form:SimpleForm
+                id="newThemeForm"
+                editable="true"
+                layout="ResponsiveGridLayout"
+                labelSpanXL="4"
+                labelSpanL="4"
+                labelSpanM="12"
+                adjustLabelSpan="false"
+                emptySpanXL="0"
+                emptySpanL="0"
+                emptySpanM="0"
+                columnsXL="1"
+                columnsL="1"
+                columnsM="1">
+                <form:content>
+                    <Label text="Display Name" required="true" />
+                    <Input
+                        id="themeNameInput"
+                        placeholder="e.g., My Custom Theme"
+                        required="true"
+                        valueStateText="Display name is required" />
+
+                    <Label text="Technical ID" required="true" />
+                    <Input
+                        id="themeIdInput"
+                        placeholder="e.g., my_custom_theme"
+                        required="true"
+                        valueStateText="Technical ID is required" />
+
+                    <Label text="Base Theme" required="true" />
+                    <Select
+                        id="baseThemeSelect"
+                        selectedKey="sap_horizon"
+                        required="true">
+                        <items>
+                            <core:Item key="sap_horizon" text="SAP Horizon" />
+                            <core:Item key="sap_fiori_3" text="SAP Fiori 3" />
+                        </items>
+                    </Select>
+
+                    <Label text="UI5 Version" required="true" />
+                    <Select
+                        id="ui5VersionSelect"
+                        selectedKey="{versions>/selectedVersion}"
+                        required="true"
+                        items="{versions>/versions}">
+                        <core:Item key="{versions>key}" text="{versions>text}" />
+                    </Select>
+
+                    <Label text="Description" />
+                    <TextArea
+                        id="descriptionInput"
+                        placeholder="Optional description"
+                        rows="3"
+                        maxLength="500" />
+                </form:content>
+            </form:SimpleForm>
+        </content>
+        <beginButton>
+            <Button
+                text="Create"
+                type="Emphasized"
+                press="onCreateTheme" />
+        </beginButton>
+        <endButton>
+            <Button
+                text="Cancel"
+                press="onCancelNewTheme" />
+        </endButton>
+    </Dialog>
+</core:FragmentDefinition>

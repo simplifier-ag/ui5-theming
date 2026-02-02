@@ -1,0 +1,34 @@
+{
+  "name": "theme-builder-api",
+  "version": "{{VERSION}}",
+  "description": "Stateless OpenUI5 Theme Compilation Service - UI5 {{VERSION}}",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@openui5/sap.f": "{{VERSION}}",
+    "@openui5/sap.m": "{{VERSION}}",
+    "@openui5/sap.tnt": "{{VERSION}}",
+    "@openui5/sap.ui.codeeditor": "{{VERSION}}",
+    "@openui5/sap.ui.commons": "{{VERSION}}",
+    "@openui5/sap.ui.core": "{{VERSION}}",
+    "@openui5/sap.ui.dt": "{{VERSION}}",
+    "@openui5/sap.ui.fl": "{{VERSION}}",
+    "@openui5/sap.ui.integration": "{{VERSION}}",
+    "@openui5/sap.ui.layout": "{{VERSION}}",
+    "@openui5/sap.ui.rta": "{{VERSION}}",
+    "@openui5/sap.ui.suite": "{{VERSION}}",
+    "@openui5/sap.ui.table": "{{VERSION}}",
+    "@openui5/sap.ui.unified": "{{VERSION}}",
+    "@openui5/sap.ui.ux3": "{{VERSION}}",
+    "@openui5/sap.uxap": "{{VERSION}}",
+    "@openui5/themelib_sap_fiori_3": "{{VERSION}}",
+    "@openui5/themelib_sap_horizon": "{{VERSION}}",
+    "archiver": "^6.0.1",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "less-openui5": "^0.11.6"
+  }
+}

@@ -1,0 +1,37 @@
+{
+	"name": "themedesigner",
+	"version": "1.0.0",
+	"description": "UI5 Application: themedesigner",
+	"author": "mathieuroll",
+	"license": "Apache-2.0",
+	"scripts": {
+		"postinstall": "cd server && npm install",
+		"clean": "rimraf dist coverage",
+		"build": "ui5 build --clean-dest",
+		"build:opt": "ui5 build self-contained --clean-dest --all",
+		"start": "ui5 serve --port 8080 -o index.html",
+		"start:ui": "ui5 serve --port 8080 -o index.html",
+		"start:server": "cd server && npm start",
+		"start:all": "concurrently \"npm run start:server\" \"npm run start:ui\" --names \"API,UI5\" --prefix-colors \"blue,green\"",
+		"lint": "eslint webapp",
+		"karma": "karma start",
+		"karma-ci": "karma start karma-ci.conf.js",
+		"karma-ci-cov": "karma start karma-ci-cov.conf.js",
+		"test": "npm run lint && npm run karma-ci-cov"
+	},
+	"devDependencies": {
+		"@ui5/cli": "^4.0.23",
+		"@ui5/middleware-code-coverage": "^2.0.1",
+		"concurrently": "^8.2.2",
+		"eslint": "^9.34.0",
+		"eslint-plugin-jsdoc": "^54.1.1",
+		"globals": "^16.3.0",
+		"karma": "^6.4.4",
+		"karma-chrome-launcher": "^3.2.0",
+		"karma-coverage": "^2.2.1",
+		"karma-ui5": "^4.1.0",
+		"rimraf": "^6.0.1",
+		"ui5-middleware-livereload": "^3.1.2",
+		"ui5-middleware-simpleproxy": "^3.0.9"
+	}
+}

@@ -1,0 +1,27 @@
+{
+  "name": "theme-designer-server",
+  "version": "1.0.0",
+  "description": "Backend server for OpenUI5 Theme Designer",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "better-sqlite3": "^12.4.1",
+    "body-parser": "^1.20.2",
+    "connect-ensure-login": "^0.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^4.18.2",
+    "express-session": "^1.18.2",
+    "multer": "^2.0.2",
+    "node-fetch": "^2.7.0",
+    "passport": "^0.7.0",
+    "passport-openidconnect": "^0.1.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

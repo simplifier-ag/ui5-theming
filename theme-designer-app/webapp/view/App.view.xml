@@ -1,0 +1,34 @@
+<mvc:View
+	controllerName="themedesigner.controller.App"
+	displayBlock="true"
+	height="100%"
+	xmlns="sap.m"
+	xmlns:mvc="sap.ui.core.mvc"
+	xmlns:f="sap.f"
+	xmlns:core="sap.ui.core">
+
+	<VBox height="100%">
+		<f:ShellBar
+			id="shellBar"
+			title="Theme Designer"
+			showNavButton="{appModel>/showNavButton}"
+			navButtonPressed=".onNavBack"
+			homeIcon="images/Simplifier-Logo-white.svg"
+			homeIconPressed=".onHomeIconPressed">
+			<f:profile>
+				<Avatar
+					id="userAvatar"
+					initials="{user>/initials}"
+					displaySize="XS"
+					press=".onAvatarPress"
+					tooltip="{user>/displayName}" />
+			</f:profile>
+		</f:ShellBar>
+		<App id="app" class="sapUiNoContentPadding">
+			<layoutData>
+				<FlexItemData growFactor="1" />
+			</layoutData>
+		</App>
+	</VBox>
+
+</mvc:View>

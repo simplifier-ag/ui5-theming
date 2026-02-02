@@ -1,0 +1,19 @@
+/* Theme Designer Custom Styles */
+
+/* Shell Color for ShellBar Header */
+/* TODO: Replace this CSS with a proper UI5 theme using Theme Designer */
+/* Create a theme with Shell Color #105577 and apply it in manifest.json */
+.sapMShellBar {
+    background-color: #105577 !important; /* Simplifier Shell Color */
+}
+
+.sapMShellBar .sapMBarChild,
+.sapMShellBar .sapMTitle {
+    color: #ffffff !important;
+}
+
+/* Avatar styling in ShellBar */
+.sapMShellBar .sapFAvatar {
+    cursor: pointer;
+    border: 2px solid #ffffff;
+}

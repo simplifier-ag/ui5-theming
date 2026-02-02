@@ -1,0 +1,131 @@
+<mvc:View
+    controllerName="themedesigner.controller.ThemeOverview"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:f="sap.f"
+    xmlns:core="sap.ui.core"
+    displayBlock="true"
+    height="100%">
+    <f:DynamicPage
+        id="dynamicPageId"
+        headerExpanded="true"
+        toggleHeaderOnTitleClick="false">
+        <!-- DynamicPage Title -->
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading>
+                    <Title text="My Themes" />
+                </f:heading>
+                <f:actions>
+                    <Button
+                        id="newThemeBtn"
+                        text="New"
+                        type="Emphasized"
+                        press="onNewTheme" />
+                    <Button
+                        id="importThemeBtn"
+                        text="Import"
+                        type="Default"
+                        press="onImportTheme" />
+                </f:actions>
+            </f:DynamicPageTitle>
+        </f:title>
+        <!-- DynamicPage Content -->
+        <f:content>
+            <VBox>
+                <Table
+                    id="themesTable"
+                    items="{themeList>/themes}"
+                    mode="None"
+                    class="sapUiResponsiveMargin"
+                    width="auto">
+                <columns>
+                    <Column
+                        width="12em"
+                        demandPopin="true"
+                        minScreenWidth="Tablet">
+                        <Text text="Theme Name" />
+                    </Column>
+                    <Column
+                        width="8em"
+                        demandPopin="true"
+                        minScreenWidth="Desktop"
+                        popinDisplay="Inline">
+                        <Text text="Base Theme" />
+                    </Column>
+                    <Column
+                        width="6em"
+                        hAlign="Center"
+                        demandPopin="true"
+                        minScreenWidth="Desktop"
+                        popinDisplay="Inline">
+                        <Text text="Brand Color" />
+                    </Column>
+                    <Column
+                        width="12em"
+                        demandPopin="true"
+                        minScreenWidth="Tablet"
+                        popinDisplay="Block">
+                        <Text text="Description" />
+                    </Column>
+                    <Column
+                        width="8em"
+                        demandPopin="true"
+                        minScreenWidth="Desktop"
+                        popinDisplay="Inline">
+                        <Text text="Updated" />
+                    </Column>
+                    <Column
+                        width="4em"
+                        hAlign="End"
+                        demandPopin="false">
+                        <Text text="Actions" />
+                    </Column>
+                </columns>
+                <items>
+                    <ColumnListItem type="Active" press="onThemePress">
+                        <cells>
+                            <VBox>
+                                <ObjectIdentifier
+                                    title="{themeList>name}"
+                                    text="{themeList>themeId}" />
+                                <Label
+                                    text="UI5 {themeList>ui5Version}"
+                                    class="sapUiTinyMarginTop" />
+                            </VBox>
+                            <Text text="{themeList>baseTheme}" />
+                            <HBox justifyContent="Center" alignItems="Center">
+                                <core:HTML content="&lt;div style='width: 30px; height: 30px; background-color: {themeList>brandColor}; border: 1px solid #ccc; border-radius: 4px;'&gt;&lt;/div&gt;" />
+                            </HBox>
+                            <Text text="{themeList>description}" />
+                            <Text text="{
+                                path: 'themeList>updatedAt',
+                                formatter: '.formatDate'
+                            }" />
+                            <HBox justifyContent="End">
+                                <Button
+                                    icon="sap-icon://delete"
+                                    type="Transparent"
+                                    press="onDeleteTheme"
+                                    tooltip="Delete Theme" />
+                            </HBox>
+                        </cells>
+                    </ColumnListItem>
+                </items>
+            </Table>
+            <Panel visible="{= ${themeList>/themes}.length === 0 }">
+                <VBox alignItems="Center" class="sapUiLargeMargin">
+                    <core:Icon src="sap-icon://visits" size="4rem" color="#999" class="sapUiMediumMarginBottom" />
+                    <Title text="No Themes Yet" level="H3" class="sapUiTinyMarginBottom" />
+                    <Text text="Create your first theme to get started" />
+                    <Button
+                        text="New"
+                        type="Emphasized"
+                        press="onNewTheme"
+                        class="sapUiMediumMarginTop" />
+                </VBox>
+            </Panel>
+            </VBox>
+        </f:content>
+    </f:DynamicPage>
+</mvc:View>

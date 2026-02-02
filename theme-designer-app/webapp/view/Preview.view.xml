@@ -1,0 +1,213 @@
+<mvc:View
+	xmlns:mvc="sap.ui.core.mvc"
+	xmlns="sap.m"
+	xmlns:core="sap.ui.core"
+  xmlns:tnt="sap.tnt"
+	displayBlock="true">
+	<App>
+		<Page showHeader="false" enableScrolling="true">
+			<content>
+        <tnt:ToolHeader>
+          <Button icon="sap-icon://menu2" type="Transparent">
+            <layoutData>
+              <OverflowToolbarLayoutData priority="NeverOverflow" />
+            </layoutData>
+          </Button>
+          <MenuButton text="File" type="Transparent">
+            <layoutData>
+              <OverflowToolbarLayoutData priority="Low" />
+            </layoutData>
+          </MenuButton>
+          <MenuButton text="Edit" type="Transparent" enabled="false">
+            <layoutData>
+              <OverflowToolbarLayoutData priority="Low" />
+            </layoutData>
+          </MenuButton>
+          <MenuButton text="View" type="Transparent">
+            <layoutData>
+              <OverflowToolbarLayoutData priority="Low" />
+            </layoutData>
+          </MenuButton>
+          <MenuButton text="Navigate" type="Transparent">
+            <layoutData>
+              <OverflowToolbarLayoutData priority="Low" />
+            </layoutData>
+          </MenuButton>
+          <MenuButton text="Code" type="Transparent">
+            <layoutData>
+              <OverflowToolbarLayoutData priority="Low" />
+            </layoutData>
+          </MenuButton>
+          <MenuButton text="Refactor" type="Transparent">
+            <layoutData>
+              <OverflowToolbarLayoutData priority="Low" />
+            </layoutData>
+          </MenuButton>
+          <MenuButton text="Run" type="Transparent">
+            <layoutData>
+              <OverflowToolbarLayoutData priority="Low" />
+            </layoutData>
+          </MenuButton>
+          <MenuButton text="Tools" type="Transparent">
+            <layoutData>
+              <OverflowToolbarLayoutData priority="Low" />
+            </layoutData>
+          </MenuButton>
+          <tnt:ToolHeaderUtilitySeparator />
+          <ToolbarSpacer>
+            <layoutData>
+              <OverflowToolbarLayoutData minWidth="20px" />
+            </layoutData>
+          </ToolbarSpacer>
+          <SearchField width="240px">
+            <layoutData>
+              <OverflowToolbarLayoutData priority="NeverOverflow" />
+            </layoutData>
+          </SearchField>
+          <Button text="Alan Smith" type="Transparent" press=".onUserNamePress" ariaHasPopup="Menu">
+            <layoutData>
+              <OverflowToolbarLayoutData priority="NeverOverflow" />
+            </layoutData>
+          </Button>
+        </tnt:ToolHeader>
+        <!-- Buttons Section -->
+				<VBox class="sapUiSmallMargin">
+					<Label text="Buttons:" design="Bold" />
+					<HBox class="sapUiTinyMarginTop">
+						<Button text="Standard" class="sapUiTinyMarginEnd" />
+						<Button text="Emphasized" type="Emphasized" class="sapUiTinyMarginEnd" />
+						<Button text="Reject" type="Reject" class="sapUiTinyMarginEnd" />
+						<Button text="Accept" type="Accept" class="sapUiTinyMarginEnd" />
+						<Button text="Transparent" type="Transparent" class="sapUiTinyMarginEnd" />
+						<Button text="Ghost" type="Ghost" />
+					</HBox>
+					<HBox class="sapUiTinyMarginTop">
+						<Button icon="sap-icon://add" tooltip="Add" class="sapUiTinyMarginEnd" />
+						<Button icon="sap-icon://edit" type="Emphasized" tooltip="Edit" class="sapUiTinyMarginEnd" />
+						<Button icon="sap-icon://delete" type="Reject" tooltip="Delete" class="sapUiTinyMarginEnd" />
+						<Button text="Settings" icon="sap-icon://settings" type="Transparent" tooltip="Settings" class="sapUiTinyMarginEnd" />
+						<Button text="With Icon" icon="sap-icon://save" type="Emphasized" />
+					</HBox>
+				</VBox>
+
+				<!-- Input Fields Section -->
+				<VBox class="sapUiSmallMargin">
+					<Label text="Input Fields:" design="Bold" />
+					<Input placeholder="Standard Input" width="300px" class="sapUiTinyMarginTop" />
+					<Input value="Input with Value" width="300px" class="sapUiTinyMarginTop" />
+					<Input value="Error State" valueState="Error" valueStateText="This field has an error" width="300px" class="sapUiTinyMarginTop" />
+					<Input value="Warning State" valueState="Warning" valueStateText="This is a warning" width="300px" class="sapUiTinyMarginTop" />
+					<Input value="Success State" valueState="Success" width="300px" class="sapUiTinyMarginTop" />
+					<TextArea placeholder="Text Area" width="300px" rows="3" class="sapUiTinyMarginTop" />
+				</VBox>
+
+				<!-- Select & ComboBox Section -->
+				<VBox class="sapUiSmallMargin">
+					<Label text="Select &amp; ComboBox:" design="Bold" />
+					<Select width="300px" class="sapUiTinyMarginTop">
+						<items>
+							<core:Item key="1" text="Option 1" />
+							<core:Item key="2" text="Option 2" />
+							<core:Item key="3" text="Option 3" />
+						</items>
+					</Select>
+					<ComboBox placeholder="ComboBox" width="300px" class="sapUiTinyMarginTop">
+						<items>
+							<core:Item key="1" text="Item 1" />
+							<core:Item key="2" text="Item 2" />
+							<core:Item key="3" text="Item 3" />
+						</items>
+					</ComboBox>
+				</VBox>
+
+				<!-- Lists Section -->
+				<VBox class="sapUiSmallMargin">
+					<Label text="Lists:" design="Bold" />
+					<List width="300px" class="sapUiTinyMarginTop">
+						<items>
+							<StandardListItem title="List Item 1" description="Description text" icon="sap-icon://product" type="Active" />
+							<StandardListItem title="List Item 2" description="Description text" icon="sap-icon://settings" type="Active" />
+							<StandardListItem title="List Item 3" description="Description text" icon="sap-icon://customer" type="Active" />
+						</items>
+					</List>
+				</VBox>
+
+				<!-- Selection Controls Section -->
+				<VBox class="sapUiSmallMargin">
+					<Label text="Selection Controls:" design="Bold" />
+					<Switch state="true" customTextOn="On" customTextOff="Off" class="sapUiTinyMarginTop" />
+					<CheckBox text="Checkbox Selected" selected="true" class="sapUiTinyMarginTop" />
+					<CheckBox text="Checkbox Unselected" selected="false" class="sapUiTinyMarginTop" />
+					<RadioButton text="Radio Button 1" groupName="group1" selected="true" class="sapUiTinyMarginTop" />
+					<RadioButton text="Radio Button 2" groupName="group1" class="sapUiTinyMarginTop" />
+					<Slider width="300px" value="50" class="sapUiTinyMarginTop" />
+				</VBox>
+
+				<!-- Progress Indicators Section -->
+				<VBox class="sapUiSmallMargin">
+					<Label text="Progress Indicators:" design="Bold" />
+					<ProgressIndicator percentValue="75" displayValue="75%" width="300px" class="sapUiTinyMarginTop" />
+					<BusyIndicator size="1rem" class="sapUiTinyMarginTop" />
+				</VBox>
+
+				<!-- Links & Text Section -->
+				<VBox class="sapUiSmallMargin">
+					<Label text="Links &amp; Text:" design="Bold" />
+					<Link text="This is a link" class="sapUiTinyMarginTop" />
+					<Text text="This is normal text with some content to display." class="sapUiTinyMarginTop" />
+					<Title text="Title Text" level="H3" class="sapUiTinyMarginTop" />
+				</VBox>
+
+				<!-- Toolbar Section -->
+				<VBox class="sapUiSmallMargin">
+					<Label text="Toolbar:" design="Bold" />
+					<Toolbar width="500px" class="sapUiTinyMarginTop">
+						<content>
+							<Button icon="sap-icon://menu2" />
+							<ToolbarSpacer />
+							<Button text="Action 1" />
+							<Button text="Action 2" type="Emphasized" />
+						</content>
+					</Toolbar>
+				</VBox>
+
+				<!-- Message Strips Section -->
+				<VBox class="sapUiSmallMargin">
+					<Label text="Message Strips:" design="Bold" />
+					<MessageStrip text="Information message" type="Information" showIcon="true" class="sapUiTinyMarginTop" />
+					<MessageStrip text="Success message" type="Success" showIcon="true" class="sapUiTinyMarginTop" />
+					<MessageStrip text="Warning message" type="Warning" showIcon="true" class="sapUiTinyMarginTop" />
+					<MessageStrip text="Error message" type="Error" showIcon="true" class="sapUiTinyMarginTop" />
+				</VBox>
+
+				<!-- Icons Section -->
+				<VBox class="sapUiSmallMargin">
+					<Label text="Icons:" design="Bold" />
+					<HBox class="sapUiTinyMarginTop">
+						<core:Icon src="sap-icon://home" size="2rem" color="#007bff" class="sapUiTinyMarginEnd" />
+						<core:Icon src="sap-icon://action" size="2rem" color="#28a745" class="sapUiTinyMarginEnd" />
+						<core:Icon src="sap-icon://alert" size="2rem" color="#dc3545" class="sapUiTinyMarginEnd" />
+						<core:Icon src="sap-icon://message-success" size="2rem" color="#28a745" class="sapUiTinyMarginEnd" />
+						<core:Icon src="sap-icon://message-warning" size="2rem" color="#ffc107" class="sapUiTinyMarginEnd" />
+						<core:Icon src="sap-icon://message-error" size="2rem" color="#dc3545" class="sapUiTinyMarginEnd" />
+						<core:Icon src="sap-icon://information" size="2rem" color="#0070f3" class="sapUiTinyMarginEnd" />
+						<core:Icon src="sap-icon://settings" size="2rem" color="#6c757d" class="sapUiTinyMarginEnd" />
+						<core:Icon src="sap-icon://navigation-right-arrow" size="2rem" color="#007bff" />
+					</HBox>
+				</VBox>
+
+				<!-- Avatar Section -->
+				<VBox class="sapUiSmallMargin">
+					<Label text="Avatar:" design="Bold" />
+					<HBox class="sapUiTinyMarginTop" alignItems="Center">
+						<Avatar src="" displaySize="S" initials="JD" class="sapUiTinyMarginEnd" />
+						<Avatar src="" displaySize="M" initials="AB" backgroundColor="Accent1" class="sapUiTinyMarginEnd" />
+						<Avatar src="" displaySize="L" initials="CD" backgroundColor="Accent2" class="sapUiTinyMarginEnd" />
+						<Avatar src="sap-icon://customer" displaySize="M" backgroundColor="Accent3" class="sapUiTinyMarginEnd" />
+						<Avatar src="sap-icon://employee" displaySize="M" backgroundColor="Accent4" />
+					</HBox>
+				</VBox>
+			</content>
+		</Page>
+	</App>
+</mvc:View>
