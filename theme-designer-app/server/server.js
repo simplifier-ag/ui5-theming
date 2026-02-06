@@ -425,6 +425,10 @@ app.post('/api/import-theme', ensureAuthenticated, upload.single('themeZip'), as
 
 		console.log('Importing theme from ZIP:', req.file.originalname);
 
+		// Get UI5 version from request body (sent via FormData)
+		const ui5Version = req.body.ui5Version || '1.96.40';
+		console.log('Import UI5 version:', ui5Version);
+
 		// Parse ZIP from memory buffer
 		const zip = new AdmZip(req.file.buffer);
 		const zipEntries = zip.getEntries();
@@ -527,6 +531,7 @@ app.post('/api/import-theme', ensureAuthenticated, upload.single('themeZip'), as
 			brandColor: brandColor,
 			focusColor: focusColor,
 			shellColor: shellColor,
+			ui5Version: ui5Version,
 			customCss: customCss,
 			description: `Imported from ${req.file.originalname}`,
 			userId,

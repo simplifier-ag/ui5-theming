@@ -15,12 +15,20 @@ sap.ui.define([
 			});
 			this.getView().setModel(oModel, "themeList");
 
+			// Initialize model for UI5 versions (shared by NewTheme and Import dialogs)
+			const oVersionsModel = new JSONModel({
+				versions: [],
+				selectedVersion: ""
+			});
+			this.getView().setModel(oVersionsModel, "versions");
+
 			// Attach to routing to clear selection when returning to overview
 			const oRouter = sap.ui.core.UIComponent.getRouterFor(this);
 			oRouter.getRoute("themeOverview").attachPatternMatched(this._onRouteMatched, this);
 
-			// Load themes from backend
+			// Load data from backend
 			this._loadThemes();
+			this._loadAvailableVersions();
 		},
 
 		_onRouteMatched: function () {
@@ -60,33 +68,28 @@ sap.ui.define([
 				}).then(function (oDialog) {
 					this._newThemeDialog = oDialog;
 					this.getView().addDependent(this._newThemeDialog);
-					this._loadAvailableVersions();
 					this._newThemeDialog.open();
 				}.bind(this));
 			} else {
-				this._loadAvailableVersions();
 				this._newThemeDialog.open();
 			}
 		},
 
 		_loadAvailableVersions: function () {
 			// Fetch available UI5 versions from backend
+			const oVersionsModel = this.getView().getModel("versions");
+
 			fetch("/api/available-versions", {
 				method: "GET",
 				credentials: "include"
 			})
 				.then(response => response.json())
 				.then(data => {
-					// Create or update JSONModel with versions data
-					const oVersionModel = new sap.ui.model.json.JSONModel({
+					// Update versions model
+					oVersionsModel.setData({
 						versions: data.versions,
 						selectedVersion: data.defaultVersion
 					});
-
-					// Set model to the dialog
-					if (this._newThemeDialog) {
-						this._newThemeDialog.setModel(oVersionModel, "versions");
-					}
 				})
 				.catch(error => {
 					console.error("Error loading available versions:", error);
@@ -248,6 +251,21 @@ sap.ui.define([
 		// Theme Import Handlers
 
 		onImportTheme: function () {
+			// Load or create import dialog
+			if (!this._importDialog) {
+				this.loadFragment({
+					name: "themedesigner.view.ImportDialog"
+				}).then(function (oDialog) {
+					this._importDialog = oDialog;
+					this.getView().addDependent(this._importDialog);
+					this._importDialog.open();
+				}.bind(this));
+			} else {
+				this._importDialog.open();
+			}
+		},
+
+		onSelectImportFile: function () {
 			// Create a hidden file input element
 			if (!this._fileInput) {
 				this._fileInput = document.createElement('input');
@@ -257,29 +275,53 @@ sap.ui.define([
 				document.body.appendChild(this._fileInput);
 
 				// Attach change handler
-				this._fileInput.addEventListener('change', this._onFileSelected.bind(this));
+				this._fileInput.addEventListener('change', this._onImportFileSelected.bind(this));
 			}
 
 			// Trigger file picker
 			this._fileInput.click();
 		},
 
-		_onFileSelected: function (event) {
+		_onImportFileSelected: function (event) {
 			const file = event.target.files[0];
 			if (!file) return;
 
-			console.log('Selected file:', file.name);
+			console.log('Selected import file:', file.name);
+
+			// Store selected file
+			this._selectedImportFile = file;
+
+			// Update UI
+			this.byId( "selectedFileName").setText(file.name);
+			this.byId( "importBtn").setEnabled(true);
+
+			// Reset file input for next selection
+			this._fileInput.value = '';
+		},
+
+		onConfirmImport: function () {
+			if (!this._selectedImportFile) {
+				MessageBox.error("Please select a theme ZIP file");
+				return;
+			}
+
+			// Get selected UI5 version
+			const oVersionSelect = this.byId( "ui5VersionImportSelect");
+			const ui5Version = oVersionSelect.getSelectedKey();
+
+			console.log('Importing theme with UI5 version:', ui5Version);
 
 			// Create FormData to upload the file
 			const formData = new FormData();
-			formData.append('themeZip', file);
+			formData.append('themeZip', this._selectedImportFile);
+			formData.append('ui5Version', ui5Version);
 
-			// Show busy indicator
+			// Close dialog and show busy indicator
+			this._importDialog.close();
 			this.getView().setBusy(true);
 
-		// Call backend to import theme - always use relative URL
-		// UI5 Middleware Proxy (dev) and Nginx (docker) handle routing to API server
-			// Call import API
+			// Call backend to import theme - always use relative URL
+			// UI5 Middleware Proxy (dev) and Nginx (docker) handle routing to API server
 			fetch("/api/import-theme", {
 				method: "POST",
 				body: formData,
@@ -309,9 +351,18 @@ sap.ui.define([
 				})
 				.finally(() => {
 					this.getView().setBusy(false);
-					// Reset file input
-					this._fileInput.value = '';
 				});
+		},
+
+		onCancelImport: function () {
+			this._importDialog.close();
+		},
+
+		onImportDialogAfterClose: function () {
+			// Reset file selection
+			this._selectedImportFile = null;
+			this.byId( "selectedFileName").setText("No file selected");
+			this.byId( "importBtn").setEnabled(false);
 		},
 
 
