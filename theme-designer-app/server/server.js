@@ -9,12 +9,11 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const multer = require('multer');
 const AdmZip = require('adm-zip');
-const fs = require('fs').promises;
 const passport = require('passport');
 const session = require('express-session');
 const { Strategy: OpenIDConnectStrategy } = require('passport-openidconnect');
 const BuilderRouter = require('./router');
-const { db, statements } = require('./database');
+const { statements, initialize } = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -263,10 +262,10 @@ app.get('/api/theme-defaults/:baseTheme', async (req, res) => {
 });
 
 // GET /api/themes - Get all themes
-app.get('/api/themes', ensureAuthenticated, (req, res) => {
+app.get('/api/themes', ensureAuthenticated, async (req, res) => {
 	try {
 		const userId = getUserId(req);
-		const themes = statements.getAllThemes.all(userId);
+		const themes = await statements.getAllThemes.all(userId);
 		res.json(themes);
 	} catch (error) {
 		console.error('Error fetching themes:', error);
@@ -275,10 +274,10 @@ app.get('/api/themes', ensureAuthenticated, (req, res) => {
 });
 
 // GET /api/themes/:id - Get theme by ID
-app.get('/api/themes/:id', ensureAuthenticated, (req, res) => {
+app.get('/api/themes/:id', ensureAuthenticated, async (req, res) => {
 	try {
 		const userId = getUserId(req);
-		const theme = statements.getThemeById.get(req.params.id, userId);
+		const theme = await statements.getThemeById.get(req.params.id, userId);
 		if (!theme) {
 			return res.status(404).json({ error: 'Theme not found' });
 		}
@@ -290,7 +289,7 @@ app.get('/api/themes/:id', ensureAuthenticated, (req, res) => {
 });
 
 // POST /api/themes - Create new theme
-app.post('/api/themes', ensureAuthenticated, (req, res) => {
+app.post('/api/themes', ensureAuthenticated, async (req, res) => {
 	try {
 		const { themeId, name, baseTheme, brandColor, focusColor, shellColor, customCss, description, ui5Version } = req.body;
 		const userId = getUserId(req);
@@ -316,7 +315,7 @@ app.post('/api/themes', ensureAuthenticated, (req, res) => {
 		const themeUi5Version = ui5Version || process.env.DEFAULT_UI5_VERSION || '1.96.40';
 
 		const now = new Date().toISOString();
-		const result = statements.createTheme.run({
+		const result = await statements.createTheme.run({
 			themeId,
 			name,
 			baseTheme,
@@ -331,7 +330,7 @@ app.post('/api/themes', ensureAuthenticated, (req, res) => {
 			updatedAt: now
 		});
 
-		const newTheme = statements.getThemeById.get(result.lastInsertRowid, userId);
+		const newTheme = await statements.getThemeById.get(result.lastInsertRowid, userId);
 		res.status(201).json(newTheme);
 	} catch (error) {
 		console.error('Error creating theme:', error);
@@ -340,7 +339,7 @@ app.post('/api/themes', ensureAuthenticated, (req, res) => {
 });
 
 // PUT /api/themes/:id - Update theme
-app.put('/api/themes/:id', ensureAuthenticated, (req, res) => {
+app.put('/api/themes/:id', ensureAuthenticated, async (req, res) => {
 	try {
 		const { themeId, name, baseTheme, brandColor, focusColor, shellColor, customCss, description, ui5Version } = req.body;
 		const id = req.params.id;
@@ -352,7 +351,7 @@ app.put('/api/themes/:id', ensureAuthenticated, (req, res) => {
 		}
 
 		// Check if theme exists and belongs to user
-		const existingTheme = statements.getThemeById.get(id, userId);
+		const existingTheme = await statements.getThemeById.get(id, userId);
 		if (!existingTheme) {
 			return res.status(404).json({ error: 'Theme not found' });
 		}
@@ -373,7 +372,7 @@ app.put('/api/themes/:id', ensureAuthenticated, (req, res) => {
 		const themeUi5Version = ui5Version || existingTheme.ui5Version || process.env.DEFAULT_UI5_VERSION || '1.96.40';
 
 		const now = new Date().toISOString();
-		statements.updateTheme.run({
+		await statements.updateTheme.run({
 			id: id,
 			themeId,
 			name,
@@ -388,7 +387,7 @@ app.put('/api/themes/:id', ensureAuthenticated, (req, res) => {
 			updatedAt: now
 		});
 
-		const updatedTheme = statements.getThemeById.get(id, userId);
+		const updatedTheme = await statements.getThemeById.get(id, userId);
 		res.json(updatedTheme);
 	} catch (error) {
 		console.error('Error updating theme:', error);
@@ -397,18 +396,18 @@ app.put('/api/themes/:id', ensureAuthenticated, (req, res) => {
 });
 
 // DELETE /api/themes/:id - Delete theme
-app.delete('/api/themes/:id', ensureAuthenticated, (req, res) => {
+app.delete('/api/themes/:id', ensureAuthenticated, async (req, res) => {
 	try {
 		const themeId = req.params.id;
 		const userId = getUserId(req);
 
 		// Check if theme exists and belongs to user
-		const existingTheme = statements.getThemeById.get(themeId, userId);
+		const existingTheme = await statements.getThemeById.get(themeId, userId);
 		if (!existingTheme) {
 			return res.status(404).json({ error: 'Theme not found' });
 		}
 
-		statements.deleteTheme.run(themeId, userId);
+		await statements.deleteTheme.run(themeId, userId);
 		res.status(204).send();
 	} catch (error) {
 		console.error('Error deleting theme:', error);
@@ -513,7 +512,7 @@ app.post('/api/import-theme', ensureAuthenticated, upload.single('themeZip'), as
 		}
 
 		// Check if themeId already exists
-		const existingTheme = statements.getThemeByThemeId.get(themeName);
+		const existingTheme = await statements.getThemeByThemeId.get(themeName);
 		if (existingTheme) {
 			// Make unique by appending timestamp
 			const timestamp = Date.now();
@@ -524,7 +523,7 @@ app.post('/api/import-theme', ensureAuthenticated, upload.single('themeZip'), as
 		// Create theme in database
 		const userId = getUserId(req);
 		const now = new Date().toISOString();
-		const result = statements.createTheme.run({
+		const result = await statements.createTheme.run({
 			themeId: themeName,
 			name: themeLabel,
 			baseTheme: baseTheme,
@@ -539,7 +538,7 @@ app.post('/api/import-theme', ensureAuthenticated, upload.single('themeZip'), as
 			updatedAt: now
 		});
 
-		const newTheme = statements.getThemeById.get(result.lastInsertRowid, userId);
+		const newTheme = await statements.getThemeById.get(result.lastInsertRowid, userId);
 		console.log(`Theme imported successfully: ${themeName} (ID: ${newTheme.id})`);
 
 		res.json(newTheme);
@@ -620,7 +619,14 @@ app.get('/api/health', (req, res) => {
 	res.json({ status: 'ok', message: 'Theme Designer API is running' });
 });
 
-app.listen(PORT, () => {
-	console.log(`Theme Designer API running on port ${PORT}`);
-	console.log(`Health check: http://localhost:${PORT}/api/health`);
-});
+initialize()
+    .then(() => {
+        app.listen(PORT, () => {
+            console.log(`Theme Designer API running on port ${PORT}`);
+            console.log(`Health check: http://localhost:${PORT}/api/health`);
+        });
+    })
+    .catch((err) => {
+        console.error('[DB] Initialization failed:', err);
+        process.exit(1);
+    });

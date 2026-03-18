@@ -18,6 +18,9 @@ server/temp
 server/data/*.db
 server/data/*.db-shm
 server/data/*.db-wal
+server/themes.db
+server/themes.db-shm
+server/themes.db-wal
 *.log
 npm-debug.log*
 yarn-debug.log*

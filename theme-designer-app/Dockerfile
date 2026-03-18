@@ -67,9 +67,7 @@ COPY --chown=root:root nginx.conf /etc/nginx/nginx.conf
 COPY --chown=nodejs:nodejs server/package*.json ./server/
 RUN cd server && npm ci --omit=dev
 
-COPY --chown=nodejs:nodejs server/server.js ./server/
-COPY --chown=nodejs:nodejs server/database.js ./server/
-COPY --chown=nodejs:nodejs server/router.js ./server/
+COPY --chown=nodejs:nodejs server/ ./server/
 
 # Create temp directories
 RUN mkdir -p /app/server/temp \
