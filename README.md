@@ -176,7 +176,7 @@ Health check endpoint
 - **Frontend**: OpenUI5 1.96.40 (JavaScript)
 - **Backend**: Node.js, Express
 - **Authentication**: Passport.js with OAuth 2.0 / OpenID Connect (Keycloak)
-- **Database**: better-sqlite3 (SQLite)
+- **Database**: Knex.js with SQLite (default) or MySQL/MariaDB
 - **Theme Compiler**: less-openui5
 - **Additional Packages**: archiver, cors, body-parser, concurrently, express-session
 
@@ -192,6 +192,27 @@ KEYCLOAK_REALM=your-realm
 KEYCLOAK_CLIENT_ID=theme-designer
 KEYCLOAK_CLIENT_SECRET=your-client-secret
 SESSION_SECRET=your-random-secret  # Generate: openssl rand -base64 32
+```
+
+### Database (Optional)
+
+SQLite is used by default (no configuration needed). To use MySQL/MariaDB instead:
+
+```bash
+DB_TYPE=mysql                # sqlite (default) or mysql
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=themedesigner
+DB_USER=themedesigner
+DB_PASSWORD=your-password
+DB_ROOT_PASSWORD=root        # Only needed for Docker MySQL container
+DB_SSL=false
+```
+
+To migrate existing data from SQLite to MySQL:
+```bash
+cd theme-designer-app/server
+DB_TYPE=mysql DB_HOST=localhost DB_USER=themedesigner DB_PASSWORD=... node migrate-data.js
 ```
 
 ### Additional (Optional)
@@ -215,6 +236,9 @@ NODE_ENV=production          # Node environment (default: development)
 | `npm run build` | Builds the UI5 app |
 | `npm run lint` | Linter for code quality |
 | `npm test` | Runs tests |
+| `cd theme-designer-app/server && npm run db:migrate` | Run pending DB migrations |
+| `cd theme-designer-app/server && npm run db:rollback` | Rollback last migration |
+| `cd theme-designer-app/server && npm run db:status` | Show migration status |
 
 ## Structure of Exported Theme
 
