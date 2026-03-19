@@ -140,7 +140,18 @@
 						</Panel>
 
 						<!-- Custom CSS Panel -->
-						<Panel headerText="Custom CSS" expandable="true" expanded="false" class="sapUiSmallMarginTop">
+						<Panel expandable="true" expanded="false" class="sapUiSmallMarginTop">
+							<headerToolbar>
+								<Toolbar>
+									<Title text="Custom CSS" level="H4" />
+									<Button
+										icon="sap-icon://sys-help"
+										type="Transparent"
+										tooltip="Click to show available UI5 Theming Parameters&#x0a;&#x0a;Example:&#x0a;@sapUiBaseText: blue;"
+										press="onCssHelpPress" />
+									<ToolbarSpacer />
+								</Toolbar>
+							</headerToolbar>
 							<VBox class="sapUiSmallMargin">
 								<Label text="Additional LESS/CSS Rules" />
 								<editor:CodeEditor

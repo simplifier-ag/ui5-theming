@@ -233,6 +233,12 @@ sap.ui.define([
 			this._applyPreview();
 		},
 
+		onCssHelpPress: function () {
+			var sVersion = this.getView().getModel("themeModel").getProperty("/ui5Version") || "1.96.40";
+			var sUrl = "https://sdk.openui5.org/" + sVersion + "/test-resources/sap/m/demokit/theming/webapp/index.html";
+			window.open(sUrl, "_blank");
+		},
+
 		onSaveTheme: function () {
 			var oModel = this.getView().getModel("themeModel");
 			var oThemeData = {
