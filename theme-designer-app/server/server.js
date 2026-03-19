@@ -115,8 +115,23 @@ const getThemeDefaults = (baseTheme) => {
 			shellColor: '#ffffff'
 		},
 		sap_fiori_3: {
-			brandColor: '#0070f2',
-			focusColor: '#0032a5',
+			brandColor: '#0a6ed1',
+			focusColor: '#000000',
+			shellColor: '#354a5f'
+		},
+		sap_fiori_3_dark: {
+			brandColor: '#0a6ed1',
+			focusColor: '#0a6ed1',
+			shellColor: '#29313a'
+		},
+		sap_fiori_3_hcb: {
+			brandColor: '#ffffff',
+			focusColor: '#ffffff',
+			shellColor: '#000000'
+		},
+		sap_fiori_3_hcw: {
+			brandColor: '#000000',
+			focusColor: '#000000',
 			shellColor: '#ffffff'
 		}
 	};
@@ -300,7 +315,7 @@ app.post('/api/themes', ensureAuthenticated, async (req, res) => {
 		}
 
 		// Validate baseTheme
-		const validBaseThemes = ['sap_horizon', 'sap_fiori_3'];
+		const validBaseThemes = ['sap_horizon', 'sap_fiori_3', 'sap_fiori_3_dark', 'sap_fiori_3_hcb', 'sap_fiori_3_hcw'];
 		if (!validBaseThemes.includes(baseTheme)) {
 			return res.status(400).json({
 				error: 'Invalid base theme',
@@ -357,7 +372,7 @@ app.put('/api/themes/:id', ensureAuthenticated, async (req, res) => {
 		}
 
 		// Validate baseTheme
-		const validBaseThemes = ['sap_horizon', 'sap_fiori_3'];
+		const validBaseThemes = ['sap_horizon', 'sap_fiori_3', 'sap_fiori_3_dark', 'sap_fiori_3_hcb', 'sap_fiori_3_hcw'];
 		if (!validBaseThemes.includes(baseTheme)) {
 			return res.status(400).json({
 				error: 'Invalid base theme',

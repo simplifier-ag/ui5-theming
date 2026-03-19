@@ -40,6 +40,9 @@
 						<items>
 							<core:Item key="sap_horizon" text="SAP Horizon" />
 							<core:Item key="sap_fiori_3" text="SAP Fiori 3" />
+							<core:Item key="sap_fiori_3_dark" text="SAP Fiori 3 – Dark" />
+							<core:Item key="sap_fiori_3_hcb" text="SAP Fiori 3 – High Contrast Black" />
+							<core:Item key="sap_fiori_3_hcw" text="SAP Fiori 3 – High Contrast White" />
 						</items>
 					</Select>
 

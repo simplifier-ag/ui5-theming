@@ -60,6 +60,21 @@ function getThemeDefaults(baseTheme) {
 			brandColor: '#0070f2',
 			focusColor: '#0032a5',
 			shellColor: '#ffffff'
+		},
+		sap_fiori_3_dark: {
+			brandColor: '#0a6ed1',
+			focusColor: '#0a6ed1',
+			shellColor: '#29313a'
+		},
+		sap_fiori_3_hcb: {
+			brandColor: '#ffffff',
+			focusColor: '#ffffff',
+			shellColor: '#000000'
+		},
+		sap_fiori_3_hcw: {
+			brandColor: '#000000',
+			focusColor: '#000000',
+			shellColor: '#ffffff'
 		}
 	};
 
@@ -115,7 +130,7 @@ app.post('/api/preview-theme', async (req, res) => {
 		}
 
 		// Validate baseTheme
-		const validBaseThemes = ['sap_horizon', 'sap_fiori_3'];
+		const validBaseThemes = ['sap_horizon', 'sap_fiori_3', 'sap_fiori_3_dark', 'sap_fiori_3_hcb', 'sap_fiori_3_hcw'];
 		if (baseTheme && !validBaseThemes.includes(baseTheme)) {
 			return res.status(400).json({
 				error: 'Invalid base theme',
@@ -177,7 +192,7 @@ app.post('/api/compile-theme', async (req, res) => {
 		}
 
 		// Validate baseTheme
-		const supportedThemes = ['sap_horizon', 'sap_fiori_3'];
+		const supportedThemes = ['sap_horizon', 'sap_fiori_3', 'sap_fiori_3_dark', 'sap_fiori_3_hcb', 'sap_fiori_3_hcw'];
 		if (!baseTheme || !supportedThemes.includes(baseTheme)) {
 			return res.status(400).json({
 				error: 'Invalid base theme',
@@ -276,7 +291,10 @@ app.post('/api/compile-theme', async (req, res) => {
 				console.log('[Export] Copying font files from base theme...');
 				const themeLibMap = {
 					'sap_horizon': 'themelib_sap_horizon',
-					'sap_fiori_3': 'themelib_sap_fiori_3'
+					'sap_fiori_3': 'themelib_sap_fiori_3',
+					'sap_fiori_3_dark': 'themelib_sap_fiori_3',
+					'sap_fiori_3_hcb': 'themelib_sap_fiori_3',
+					'sap_fiori_3_hcw': 'themelib_sap_fiori_3'
 				};
 				const themeLib = themeLibMap[baseTheme];
 				const baseFontsDir = path.join(__dirname, 'node_modules/@openui5', themeLib, 'src/sap/ui/core/themes', baseTheme, 'fonts');

@@ -81,7 +81,10 @@ class ThemeBuilder {
 	getThemeLibPath(baseTheme) {
 		const themeLibMap = {
 			'sap_horizon': 'themelib_sap_horizon',
-			'sap_fiori_3': 'themelib_sap_fiori_3'
+			'sap_fiori_3': 'themelib_sap_fiori_3',
+			'sap_fiori_3_dark': 'themelib_sap_fiori_3',
+			'sap_fiori_3_hcb': 'themelib_sap_fiori_3',
+			'sap_fiori_3_hcw': 'themelib_sap_fiori_3'
 		};
 
 		const themeLib = themeLibMap[baseTheme];
