@@ -14,10 +14,8 @@ RUN apk add --no-cache dumb-init
 # Set working directory
 WORKDIR /app
 
-# Copy package template and application code
-COPY package.template.json ./
-COPY server.js theme-builder.js ./
-COPY docker-entrypoint.sh ./
+# Copy everything (see .dockerignore for exclusions)
+COPY . .
 
 # Make entrypoint executable
 RUN chmod +x docker-entrypoint.sh

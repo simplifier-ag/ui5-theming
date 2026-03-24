@@ -2,8 +2,15 @@
 .git
 .gitignore
 
-# Node modules (will be installed in container)
+# Node modules (installed at container startup via docker-entrypoint.sh)
 node_modules
+
+# package.json is generated from package.template.json at startup — exclude local copies
+package.json
+package-lock.json
+
+# Runtime temp directory
+temp
 
 # Build artifacts
 coverage
@@ -26,7 +33,7 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
-# Documentation
+# Documentation (except README)
 *.md
 !README.md
 
@@ -36,3 +43,6 @@ Thumbs.db
 
 # Test files
 test-*.js
+
+# Local dev setup script (not needed in container)
+setup.sh

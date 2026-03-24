@@ -314,14 +314,6 @@ app.post('/api/themes', ensureAuthenticated, async (req, res) => {
 			return res.status(400).json({ error: 'Missing required fields: themeId, name, baseTheme' });
 		}
 
-		// Validate baseTheme
-		const validBaseThemes = ['sap_horizon', 'sap_fiori_3', 'sap_fiori_3_dark', 'sap_fiori_3_hcb', 'sap_fiori_3_hcw'];
-		if (!validBaseThemes.includes(baseTheme)) {
-			return res.status(400).json({
-				error: 'Invalid base theme',
-				validThemes: validBaseThemes
-			});
-		}
 
 		// Get base-theme-specific defaults
 		const defaults = getThemeDefaults(baseTheme);
@@ -371,14 +363,6 @@ app.put('/api/themes/:id', ensureAuthenticated, async (req, res) => {
 			return res.status(404).json({ error: 'Theme not found' });
 		}
 
-		// Validate baseTheme
-		const validBaseThemes = ['sap_horizon', 'sap_fiori_3', 'sap_fiori_3_dark', 'sap_fiori_3_hcb', 'sap_fiori_3_hcw'];
-		if (!validBaseThemes.includes(baseTheme)) {
-			return res.status(400).json({
-				error: 'Invalid base theme',
-				validThemes: validBaseThemes
-			});
-		}
 
 		// Get base-theme-specific defaults
 		const defaults = getThemeDefaults(baseTheme);
@@ -567,31 +551,55 @@ app.post('/api/import-theme', ensureAuthenticated, upload.single('themeZip'), as
 // Theme Compilation API
 // ========================================
 
-// Preview theme endpoint (proxied to version-specific Builder API)
-app.post('/api/preview-theme', ensureAuthenticated, async (req, res) => {
+// POST /api/preview-compile — compile theme and get a short cache key (no auth needed for resources)
+app.post('/api/preview-compile', ensureAuthenticated, async (req, res) => {
 	try {
-		const { ui5Version, baseTheme, brandColor, focusColor, shellColor, customCss } = req.body;
+		const { version, ui5Version } = req.body;
+		const resolvedVersion = version || ui5Version;
 
-		console.log(`[Preview Proxy] UI5 ${ui5Version || 'default'}, Brand: ${brandColor}`);
-
-		// Proxy request to appropriate Builder API
 		const response = await builderRouter.proxyRequest(
-			ui5Version,  // Router will use default if not provided
-			'/api/preview-theme',
+			resolvedVersion,
+			'/api/preview-compile',
 			'POST',
-			{ baseTheme, brandColor, focusColor, shellColor, customCss }
+			req.body
 		);
+		res.status(response.status).json(response.data);
+	} catch (error) {
+		console.error('[Preview Compile Proxy] Error:', error);
+		res.status(500).json({ error: 'Preview compilation failed' });
+	}
+});
 
-		// Forward response to client
+// GET /api/preview-page?key=... — serve the HTML page for a compiled cache key
+app.get('/api/preview-page', ensureAuthenticated, async (req, res) => {
+	try {
+		const { key, version } = req.query;
+		const response = await builderRouter.proxyRequest(
+			version,
+			`/api/preview-page?key=${key}`,
+			'GET'
+		);
+		res.setHeader('Content-Type', 'text/html');
+		res.status(response.status).send(response.data);
+	} catch (error) {
+		console.error('[Preview Page Proxy] Error:', error);
+		res.status(500).send('<html><body>Preview compilation failed</body></html>');
+	}
+});
+
+// GET /api/preview-resources/:cacheKey/* — UI5 theme-roots CSS/JSON (no auth — loaded directly by UI5 in iframe)
+app.get('/api/preview-resources/:cacheKey/*', async (req, res) => {
+	try {
+		const subPath = `${req.params.cacheKey}/${req.params[0]}`;
+		const response = await builderRouter.proxyRequest(
+			null,
+			`/api/preview-resources/${subPath}`,
+			'GET'
+		);
 		res.setHeader('Content-Type', response.headers['content-type'] || 'text/css');
 		res.status(response.status).send(response.data);
-
 	} catch (error) {
-		console.error('[Preview Proxy] Error:', error);
-		res.status(500).json({
-			error: 'Failed to compile preview theme',
-			details: error.message
-		});
+		res.status(500).send('/* Preview resource proxy error */');
 	}
 });
 

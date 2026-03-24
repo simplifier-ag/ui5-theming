@@ -39,10 +39,7 @@ sap.ui.define([
 		_loadThemes: function () {
 			const oModel = this.getView().getModel("themeList");
 
-			// Use explicit port 3001 for API when running on localhost
-			// Call backend to load themes - always use relative URL
-		// UI5 Middleware Proxy (dev) and Nginx (docker) handle routing to API server
-		fetch("/api/themes", {
+			fetch("/api/themes", {
 					credentials: "include"
 				})
 				.then(response => {

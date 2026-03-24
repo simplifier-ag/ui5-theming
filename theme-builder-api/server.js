@@ -18,13 +18,41 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
+const crypto = require('crypto');
 const fs = require('fs').promises;
+const fssync = require('fs');
 const archiver = require('archiver');
+const Mustache = require('mustache');
 const ThemeBuilder = require('./theme-builder');
+const { VALID_BASE_THEMES } = ThemeBuilder;
 
 const app = express();
 const port = process.env.PORT || 3000;
 const UI5_VERSION = process.env.UI5_VERSION || '1.96.40';
+
+// Preview files live in preview/ — view XML can be overridden via Docker volume
+const PREVIEW_DIR = path.join(__dirname, 'preview');
+const PREVIEW_VIEW_XML = fssync.readFileSync(path.join(PREVIEW_DIR, 'Preview.view.xml'), 'utf8');
+const PREVIEW_TEMPLATE = fssync.readFileSync(path.join(PREVIEW_DIR, 'index.html.mustache'), 'utf8');
+
+// In-memory CSS cache: cacheKey → { libs: Map<libraryName, css>, expiresAt: number }
+const previewCache = new Map();
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function getCacheKey(params) {
+	return crypto
+		.createHash('sha256')
+		.update(JSON.stringify(params))
+		.digest('hex')
+		.substring(0, 16);
+}
+
+function evictExpiredCache() {
+	const now = Date.now();
+	for (const [key, entry] of previewCache) {
+		if (entry.expiresAt < now) previewCache.delete(key);
+	}
+}
 
 // Initialize theme builder
 const themeBuilder = new ThemeBuilder();
@@ -106,62 +134,142 @@ app.get('/api/theme-defaults/:baseTheme', (req, res) => {
 	res.json(defaults);
 });
 
+
 /**
- * POST /api/preview-theme - Compile CSS for live preview
+ * POST /api/preview-compile - Compile theme and cache it. Returns a short cache key.
  *
- * Request Body:
- * - baseTheme: string (e.g., "sap_horizon", "sap_fiori_3")
- * - brandColor: string (e.g., "#ff6600")
- * - focusColor: string (optional)
- * - shellColor: string (optional)
- * - customCss: string (optional, custom LESS/CSS code)
- *
- * Response: text/css (compiled CSS for all libraries)
+ * The key is then used in GET /api/preview-page?key=... to load the preview iframe.
+ * Splitting compile (POST) from page delivery (GET) allows sending large customCss
+ * in the request body instead of cramming everything into query parameters.
  */
-app.post('/api/preview-theme', async (req, res) => {
+app.post('/api/preview-compile', async (req, res) => {
 	try {
-		const { baseTheme, brandColor, focusColor, shellColor, customCss } = req.body;
+		const { baseTheme = 'sap_fiori_3', brandColor, focusColor, shellColor, customCss = '', version } = req.body;
 
-		console.log(`[Preview] UI5 ${UI5_VERSION} - Brand: ${brandColor}, Base: ${baseTheme}`);
+		const resolvedBaseTheme = VALID_BASE_THEMES.includes(baseTheme) ? baseTheme : 'sap_fiori_3';
+		const defaults = getThemeDefaults(resolvedBaseTheme);
 
-		// Validate input
-		if (!brandColor) {
-			return res.status(400).json({ error: 'Brand color is required' });
-		}
-
-		// Validate baseTheme
-		const validBaseThemes = ['sap_horizon', 'sap_fiori_3', 'sap_fiori_3_dark', 'sap_fiori_3_hcb', 'sap_fiori_3_hcw'];
-		if (baseTheme && !validBaseThemes.includes(baseTheme)) {
-			return res.status(400).json({
-				error: 'Invalid base theme',
-				validThemes: validBaseThemes
-			});
-		}
-
-		// Get defaults for the base theme
-		const defaults = getThemeDefaults(baseTheme || 'sap_horizon');
-
-		// Compile theme for preview
-		const css = await themeBuilder.compileThemeForPreview({
+		const compileParams = {
+			baseTheme: resolvedBaseTheme,
 			brandColor: brandColor || defaults.brandColor,
 			focusColor: focusColor || defaults.focusColor,
 			shellColor: shellColor || defaults.shellColor,
-			customCss: customCss || '',
-			baseTheme: baseTheme || 'sap_horizon'
-		});
+			customCss
+		};
 
-		// Return CSS as text
-		res.setHeader('Content-Type', 'text/css');
-		res.send(css);
+		const cacheKey = getCacheKey(compileParams);
+
+		evictExpiredCache();
+		if (!previewCache.has(cacheKey)) {
+			console.log(`[Preview Compile] Compiling — base: ${resolvedBaseTheme}, brand: ${compileParams.brandColor} [key: ${cacheKey}]`);
+			const libs = await themeBuilder.compilePreviewLibraries(compileParams);
+			previewCache.set(cacheKey, {
+				libs,
+				params: compileParams,
+				expiresAt: Date.now() + CACHE_TTL_MS
+			});
+		} else {
+			console.log(`[Preview Compile] Cache hit [key: ${cacheKey}]`);
+		}
+
+		res.json({ key: cacheKey });
 
 	} catch (error) {
-		console.error('[Preview] Compilation error:', error);
-		res.status(500).json({
-			error: 'Failed to compile preview theme',
-			details: error.message,
-			ui5Version: UI5_VERSION
+		console.error('[Preview Compile] Error:', error);
+		res.status(500).json({ error: error.message });
+	}
+});
+
+/**
+ * GET /api/preview-page?key=... - Render the preview HTML for a compiled cache key.
+ *
+ * UI5 loads with data-sap-ui-theme-roots pointing to /api/preview-resources/{key}/
+ * so it fetches only our compiled CSS — no CDN base theme.
+ */
+app.get('/api/preview-page', (req, res) => {
+	const { key, version } = req.query;
+
+	const entry = previewCache.get(key);
+	if (!entry || entry.expiresAt < Date.now()) {
+		return res.status(404).send(`<!DOCTYPE html><html><body style="font-family:sans-serif;padding:1rem">
+			<h3>Preview expired or not found</h3><p>Please trigger a new preview.</p>
+		</body></html>`);
+	}
+
+	const ui5Version = version || UI5_VERSION;
+	const html = Mustache.render(PREVIEW_TEMPLATE, {
+		ui5Version,
+		themeRootsUrl: `/api/preview-resources/${key}`,
+		viewXmlJson: JSON.stringify(PREVIEW_VIEW_XML)
+	});
+
+	res.setHeader('Content-Type', 'text/html');
+	res.send(html);
+});
+
+const FONT_MIME_TYPES = {
+	'.woff2': 'font/woff2',
+	'.woff': 'font/woff',
+	'.ttf': 'font/ttf',
+	'.eot': 'application/vnd.ms-fontobject',
+	'.otf': 'font/otf'
+};
+
+/**
+ * GET /api/preview-resources/:cacheKey/* - Serve CSS, JSON params, and font files for UI5 theme-roots.
+ */
+app.get('/api/preview-resources/:cacheKey/*', (req, res) => {
+	const { cacheKey } = req.params;
+	const wildcardPath = req.params[0]; // e.g. "sap/ui/core/themes/preview_theme/library.css"
+
+	const entry = previewCache.get(cacheKey);
+	if (!entry || entry.expiresAt < Date.now()) {
+		return res.status(404).send('/* Preview cache expired or not found */');
+	}
+
+	// Extract library name: "sap/m/themes/..." → "sap.m"
+	const themePos = wildcardPath.indexOf('/themes/');
+	if (themePos === -1) return res.status(404).send('/* Invalid path */');
+
+	const libraryName = wildcardPath.substring(0, themePos).replace(/\//g, '.');
+
+	// library-parameters.json — serve theme color params as JSON
+	if (wildcardPath.endsWith('/library-parameters.json')) {
+		const p = entry.params;
+		res.setHeader('Content-Type', 'application/json');
+		return res.json({
+			sapBrandColor: p.brandColor,
+			sapContent_FocusColor: p.focusColor,
+			sapShellColor: p.shellColor
 		});
 	}
+
+	// Font files — serve directly from the @openui5 npm packages
+	const ext = path.extname(wildcardPath);
+	if (FONT_MIME_TYPES[ext]) {
+		const fontFileName = path.basename(wildcardPath);
+		// Try theme-specific fonts first (72-* fonts)
+		const fontsDir = themeBuilder.getFontsDir(entry.params.baseTheme, libraryName);
+		const fontPath = path.join(fontsDir, fontFileName);
+		if (fssync.existsSync(fontPath)) {
+			res.setHeader('Content-Type', FONT_MIME_TYPES[ext]);
+			return res.send(fssync.readFileSync(fontPath));
+		}
+		// Fall back to base fonts (SAP-icons lives under themes/base/fonts/)
+		const baseFontPath = path.join(themeBuilder.getBaseFontsDir(libraryName), fontFileName);
+		if (fssync.existsSync(baseFontPath)) {
+			res.setHeader('Content-Type', FONT_MIME_TYPES[ext]);
+			return res.send(fssync.readFileSync(baseFontPath));
+		}
+		return res.status(404).send('/* Font not found */');
+	}
+
+	// Default: compiled CSS
+	const css = entry.libs.get(libraryName);
+	if (!css) return res.status(404).send(`/* No CSS for library: ${libraryName} */`);
+
+	res.setHeader('Content-Type', 'text/css');
+	res.send(css);
 });
 
 /**
@@ -192,11 +300,10 @@ app.post('/api/compile-theme', async (req, res) => {
 		}
 
 		// Validate baseTheme
-		const supportedThemes = ['sap_horizon', 'sap_fiori_3', 'sap_fiori_3_dark', 'sap_fiori_3_hcb', 'sap_fiori_3_hcw'];
-		if (!baseTheme || !supportedThemes.includes(baseTheme)) {
+		if (!baseTheme || !VALID_BASE_THEMES.includes(baseTheme)) {
 			return res.status(400).json({
 				error: 'Invalid base theme',
-				message: `Base theme must be one of: ${supportedThemes.join(', ')}`
+				message: `Base theme must be one of: ${VALID_BASE_THEMES.join(', ')}`
 			});
 		}
 
@@ -228,15 +335,8 @@ app.post('/api/compile-theme', async (req, res) => {
 			const libraryThemeDir = path.join(themeRootDir, libraryPath, 'themes', themeId);
 			await fs.mkdir(libraryThemeDir, { recursive: true });
 
-			// Fix font paths in CSS - convert absolute paths to relative paths
-			// less-openui5 generates: url('sap/ui/core/themes/sap_horizon/fonts/...')
-			// We need: url('fonts/...') (relative to the CSS file location)
-			// IMPORTANT: Use baseTheme name, not themeName, because less-openui5 generates paths with base theme
-			const libraryPathInCss = libraryName.replace(/\./g, '/');
-			const fontPathPattern = new RegExp(`['"]${libraryPathInCss}/themes/${baseTheme}/fonts/`, 'g');
-
-			const fixedCss = result.css.replace(fontPathPattern, `'fonts/`);
-			const fixedCssRtl = result.cssRtl.replace(fontPathPattern, `'fonts/`);
+			const fixedCss = themeBuilder.fixFontPaths(result.css, libraryName, baseTheme);
+			const fixedCssRtl = themeBuilder.fixFontPaths(result.cssRtl, libraryName, baseTheme);
 
 			// Write CSS files with fixed font paths
 			await fs.writeFile(path.join(libraryThemeDir, 'library.css'), fixedCss);
@@ -289,34 +389,36 @@ app.post('/api/compile-theme', async (req, res) => {
 			// Copy font files for sap.ui.core library
 			if (libraryName === 'sap.ui.core') {
 				console.log('[Export] Copying font files from base theme...');
-				const themeLibMap = {
-					'sap_horizon': 'themelib_sap_horizon',
-					'sap_fiori_3': 'themelib_sap_fiori_3',
-					'sap_fiori_3_dark': 'themelib_sap_fiori_3',
-					'sap_fiori_3_hcb': 'themelib_sap_fiori_3',
-					'sap_fiori_3_hcw': 'themelib_sap_fiori_3'
-				};
-				const themeLib = themeLibMap[baseTheme];
-				const baseFontsDir = path.join(__dirname, 'node_modules/@openui5', themeLib, 'src/sap/ui/core/themes', baseTheme, 'fonts');
 				const targetFontsDir = path.join(libraryThemeDir, 'fonts');
+				await fs.mkdir(targetFontsDir, { recursive: true });
 
+				// Copy theme-specific fonts (72-*)
+				const themeFontsDir = themeBuilder.getFontsDir(baseTheme);
 				try {
-					// Check if fonts directory exists in base theme
-					await fs.access(baseFontsDir);
-
-					// Create target fonts directory
-					await fs.mkdir(targetFontsDir, { recursive: true });
-
-					// Copy all font files
-					const fontFiles = await fs.readdir(baseFontsDir);
+					await fs.access(themeFontsDir);
+					const fontFiles = await fs.readdir(themeFontsDir);
 					for (const fontFile of fontFiles) {
-						const sourcePath = path.join(baseFontsDir, fontFile);
-						const targetPath = path.join(targetFontsDir, fontFile);
-						await fs.copyFile(sourcePath, targetPath);
+						await fs.copyFile(path.join(themeFontsDir, fontFile), path.join(targetFontsDir, fontFile));
 						console.log(`[Export]   Copied font: ${fontFile}`);
 					}
 				} catch (error) {
-					console.warn(`[Export] Warning: Could not copy fonts from ${baseFontsDir}:`, error.message);
+					console.warn(`[Export] Warning: Could not copy theme fonts from ${themeFontsDir}:`, error.message);
+				}
+
+				// Copy base fonts (SAP-icons and other icon fonts live under themes/base/fonts/)
+				const baseFontsDir = themeBuilder.getBaseFontsDir();
+				try {
+					await fs.access(baseFontsDir);
+					const fontFiles = await fs.readdir(baseFontsDir);
+					for (const fontFile of fontFiles) {
+						const targetPath = path.join(targetFontsDir, fontFile);
+						if (!fssync.existsSync(targetPath)) {
+							await fs.copyFile(path.join(baseFontsDir, fontFile), targetPath);
+							console.log(`[Export]   Copied base font: ${fontFile}`);
+						}
+					}
+				} catch (error) {
+					console.warn(`[Export] Warning: Could not copy base fonts from ${baseFontsDir}:`, error.message);
 				}
 			}
 		}
@@ -461,7 +563,9 @@ app.listen(port, () => {
 	console.log('Endpoints:');
 	console.log(`  GET  /health`);
 	console.log(`  GET  /api/theme-defaults/:baseTheme`);
-	console.log(`  POST /api/preview-theme`);
+	console.log(`  POST /api/preview-compile`);
+	console.log(`  GET  /api/preview-page`);
+	console.log(`  GET  /api/preview-resources/:key/*`);
 	console.log(`  POST /api/compile-theme`);
 	console.log('='.repeat(60));
 });

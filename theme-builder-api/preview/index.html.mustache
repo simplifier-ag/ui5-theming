@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Theme Preview</title>
+	<script id="sap-ui-bootstrap"
+		src="https://sdk.openui5.org/{{ui5Version}}/resources/sap-ui-core.js"
+		data-sap-ui-theme="preview_theme"
+		data-sap-ui-theme-roots='{"preview_theme": "{{themeRootsUrl}}"}'
+		data-sap-ui-libs="sap.m,sap.tnt"
+		data-sap-ui-compatVersion="edge"
+		data-sap-ui-async="true"
+		data-sap-ui-frameOptions="allow">
+	</script>
+	<script>
+		sap.ui.getCore().attachInit(function() {
+			sap.ui.require(['sap/ui/core/mvc/XMLView'], function(XMLView) {
+				XMLView.create({
+					definition: {{{viewXmlJson}}}
+				}).then(function(oView) {
+					oView.placeAt("content");
+				});
+			});
+		});
+	</script>
+	<style>
+		html, body { margin: 0; padding: 0; height: 100%; overflow: auto; }
+		#content { height: 100%; }
+	</style>
+</head>
+<body class="sapUiBody" id="content"></body>
+</html>

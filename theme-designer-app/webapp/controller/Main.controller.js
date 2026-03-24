@@ -34,9 +34,6 @@ sap.ui.define([
 			// Initialize debounce timer for preview updates
 			this._previewDebounceTimer = null;
 
-			// Initialize request counter to prevent out-of-order responses
-			this._previewRequestCounter = 0;
-
 			// Initialize ColorPicker references
 			this.oBrandColorPicker = null;
 			this.oFocusColorPicker = null;
@@ -84,12 +81,8 @@ sap.ui.define([
 
 					});
 
-					// Reload preview iframe with correct UI5 version
-					var sPreviewUrl = "preview.html?version=" + (oTheme.ui5Version || "1.96.40");
-					this.byId("previewFrame").setSrc(sPreviewUrl);
-
-					// Apply initial preview (with delay to let iframe load)
-					setTimeout(this._applyPreview.bind(this), 1000);
+						// Trigger initial preview
+					this._applyPreview();
 				}.bind(this))
 				.catch(function (error) {
 					console.error('Error loading theme:', error);
@@ -374,92 +367,37 @@ sap.ui.define([
 
 		_doApplyPreview: function () {
 			var oModel = this.getView().getModel("themeModel");
-			var sBrandColor = oModel.getProperty("/brandColor");
-			var sFocusColor = oModel.getProperty("/focusColor");
-			var sShellColor = oModel.getProperty("/shellColor");
-			var sCustomCss = oModel.getProperty("/customCss");
-			var sBaseTheme = oModel.getProperty("/baseTheme");
-			var sUi5Version = oModel.getProperty("/ui5Version");
+			var oData = {
+				baseTheme: oModel.getProperty("/baseTheme"),
+				brandColor: oModel.getProperty("/brandColor"),
+				focusColor: oModel.getProperty("/focusColor"),
+				shellColor: oModel.getProperty("/shellColor"),
+				customCss: oModel.getProperty("/customCss") || '',
+				version: oModel.getProperty("/ui5Version") || '1.96.40'
+			};
 
-			// Get iframe element
-			var oIframe = document.getElementById('themePreviewIframe');
-			if (!oIframe || !oIframe.contentWindow) {
-				// Iframe not ready yet, try again later
-				setTimeout(this._doApplyPreview.bind(this), 100);
-				return;
-			}
+			this.byId("previewContainer").setBusy(true);
 
-			var oIframeDoc = oIframe.contentWindow.document;
-			if (!oIframeDoc || !oIframeDoc.head) {
-				// Iframe document not ready yet
-				setTimeout(this._doApplyPreview.bind(this), 100);
-				return;
-			}
-
-			// Increment request counter to track this specific request
-
-		// Show busy indicator
-		this.byId("previewContainer").setBusy(true);
-
-			this._previewRequestCounter++;
-			var currentRequestId = this._previewRequestCounter;
-
-			// Call API to compile theme
-			// Call backend to compile theme for preview - always use relative URL
-			// UI5 Middleware Proxy (dev) and Nginx (docker) handle routing to API server
-			fetch("/api/preview-theme", {
+			fetch("/api/preview-compile", {
 				method: "POST",
-				headers: {
-					"Content-Type": "application/json"
-				},
-				body: JSON.stringify({
-					ui5Version: sUi5Version,
-					baseTheme: sBaseTheme,
-					brandColor: sBrandColor,
-					focusColor: sFocusColor,
-					shellColor: sShellColor,
-					customCss: sCustomCss
-				}),
-				credentials: "include"
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(oData)
 			})
-			.then(function (response) {
-				if (!response.ok) {
-					throw new Error("Preview compilation failed");
+			.then(function (oRes) { return oRes.json(); })
+			.then(function (oResult) {
+				var oIframe = document.getElementById('themePreviewIframe');
+				if (oIframe && oResult.key) {
+					oIframe.onload = function () {
+						this.byId("previewContainer").setBusy(false);
+					}.bind(this);
+					oIframe.src = "/api/preview-page?key=" + oResult.key + "&version=" + oData.version;
+				} else {
+					this.byId("previewContainer").setBusy(false);
 				}
-				return response.text();
-			})
-			.then(function (css) {
-				// Only apply if this is still the latest request (prevent out-of-order responses)
-				if (currentRequestId !== this._previewRequestCounter) {
-					console.log("Ignoring outdated preview response (request " + currentRequestId + " vs current " + this._previewRequestCounter + ")");
-					return;
-				}
-
-				// Remove existing preview style from iframe
-				var oExistingStyle = oIframeDoc.getElementById('themePreviewStyle');
-				if (oExistingStyle) {
-					oExistingStyle.parentNode.removeChild(oExistingStyle);
-				}
-
-				// Apply compiled CSS to iframe
-				var oStyle = oIframeDoc.createElement('style');
-				oStyle.id = 'themePreviewStyle';
-				oStyle.innerHTML = css;
-				oIframeDoc.head.appendChild(oStyle);
-
-				// Hide busy indicator after successful CSS injection
-				this.byId("previewContainer").setBusy(false);
-
 			}.bind(this))
-			.catch(function (error) {
-				console.error("Preview error:", error);
-				// Hide busy indicator on error
+			.catch(function () {
 				this.byId("previewContainer").setBusy(false);
-
-
-
-				// Fallback: Keep existing preview or show error
-			});
+			}.bind(this));
 		},
 
 		onOpenExportDialog: function () {
@@ -486,10 +424,8 @@ sap.ui.define([
 			// Show busy indicator
 			this.getView().setBusy(true);
 
-			// Call backend to compile theme
-			// Use explicit port 3001 for API when running in Docker (UI on 8080, API on 3001)
-			// Call backend to compile theme - always use relative URL
-		// UI5 Middleware Proxy (dev) and Nginx (docker) handle routing to API server
+			// Call backend to compile theme — always relative URL
+			// UI5 Middleware Proxy (dev) and Nginx (docker) handle routing
 		fetch("/api/compile-theme", {
 				method: "POST",
 				headers: {
@@ -531,10 +467,7 @@ sap.ui.define([
 				this.oBrandColorPicker.destroy();
 				this.oBrandColorPicker = null;
 			}
-			if (this.oHoverColorPicker) {
-				this.oHoverColorPicker.destroy();
-				this.oHoverColorPicker = null;
-			}
+	
 		},
 
 		onReset: function () {

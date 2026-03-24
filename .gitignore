@@ -49,3 +49,6 @@ theme-designer-app/server/data/*.db-wal
 
 # Test scripts (local development)
 test-*.sh
+
+# Local notes and research (not for version control)
+notes/
