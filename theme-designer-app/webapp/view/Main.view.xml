@@ -29,7 +29,7 @@
 					<Button
 						text="Export"
 						type="Default"
-						press="onOpenExportDialog" />
+						press="onExport" />
 					<Button
 						text="Reset"
 						press="onReset" />

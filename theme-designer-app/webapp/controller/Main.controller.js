@@ -2,12 +2,10 @@ sap.ui.define([
 	"./BaseController",
 	"sap/m/MessageBox",
 	"sap/ui/model/json/JSONModel",
-	"sap/ui/core/Core",
-	"sap/ui/core/Fragment",
 	"sap/ui/unified/ColorPickerPopover",
 	"sap/ui/unified/ColorPickerDisplayMode",
 	"sap/ui/unified/ColorPickerMode"
-], function (BaseController, MessageBox, JSONModel, Core, Fragment, ColorPickerPopover, ColorPickerDisplayMode, ColorPickerMode) {
+], function (BaseController, MessageBox, JSONModel, ColorPickerPopover, ColorPickerDisplayMode, ColorPickerMode) {
 	"use strict";
 
 	return BaseController.extend("themedesigner.controller.Main", {
@@ -400,7 +398,7 @@ sap.ui.define([
 			}.bind(this));
 		},
 
-		onOpenExportDialog: function () {
+		onExport: function () {
 			var oThemeModel = this.getView().getModel("themeModel");
 
 			var oThemeData = {
