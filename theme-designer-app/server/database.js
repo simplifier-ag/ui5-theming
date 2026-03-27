@@ -15,7 +15,7 @@ const statements = {
         all: (userId) =>
             knex('themes')
                 .select('id', 'themeId', 'name', 'baseTheme', 'brandColor', 'focusColor',
-                        'shellColor', 'ui5Version', 'description', 'createdAt', 'updatedAt')
+                        'shellColor', 'ui5Version', 'description', 'backgroundImage', 'createdAt', 'updatedAt')
                 .where({ userId })
                 .orderBy('updatedAt', 'desc')
     },
@@ -62,4 +62,39 @@ async function initialize() {
     console.log('[DB] Migrations up to date');
 }
 
-module.exports = { statements, initialize };
+/**
+ * Statements for the theme_files table.
+ *
+ * All queries are scoped to a `type` so image, font, etc. logic stays
+ * separate without requiring separate tables.
+ */
+const fileStatements = {
+    getByThemeAndType: {
+        all: (themeId, type) =>
+            knex('theme_files').where({ themeId, type }).orderBy('createdAt', 'asc')
+    },
+
+    getById: {
+        get: (id, themeId) =>
+            knex('theme_files').where({ id, themeId }).first()
+    },
+
+    create: {
+        run: async (data) => {
+            const ids = await knex('theme_files').insert(data);
+            return { lastInsertRowid: ids[0] };
+        }
+    },
+
+    deleteOne: {
+        run: (id, themeId) =>
+            knex('theme_files').where({ id, themeId }).delete()
+    },
+
+    deleteByTheme: {
+        run: (themeId) =>
+            knex('theme_files').where({ themeId }).delete()
+    }
+};
+
+module.exports = { statements, fileStatements, initialize };

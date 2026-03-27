@@ -5,7 +5,7 @@
   xmlns:tnt="sap.tnt"
 	displayBlock="true">
 	<App>
-		<Page showHeader="false" enableScrolling="true">
+		<Page showHeader="false" enableScrolling="true" class="previewPage">
 			<content>
         <tnt:ToolHeader>
           <Button icon="sap-icon://menu2" type="Transparent">

@@ -139,6 +139,65 @@
 							</VBox>
 						</Panel>
 
+						<!-- Images Panel -->
+						<Panel expandable="true" expanded="true" class="sapUiSmallMarginTop">
+							<headerToolbar>
+								<Toolbar>
+									<Title text="Images" level="H4" />
+								</Toolbar>
+							</headerToolbar>
+							<VBox class="sapUiSmallMargin">
+
+								<Label text="App Background" />
+								<Select
+									id="backgroundImageSelect"
+									width="100%"
+									class="sapUiTinyMarginBottom"
+									change="onBackgroundImageChange" />
+
+								<List
+									id="imagesList"
+									noDataText="No images uploaded yet"
+									items="{imagesModel>/images}">
+									<headerToolbar>
+										<Toolbar>
+											<Title text="Uploaded Images" level="H5" />
+											<ToolbarSpacer />
+											<Button
+												icon="sap-icon://upload"
+												type="Transparent"
+												tooltip="Upload image (max 5 MB)"
+												press="onUploadImage" />
+										</Toolbar>
+									</headerToolbar>
+									<CustomListItem>
+										<HBox justifyContent="SpaceBetween" alignItems="Center" width="100%"
+											  class="sapUiSmallMarginTopBottom">
+											<VBox class="sapUiSmallMarginBegin">
+												<Text text="{imagesModel>filename}" />
+												<ObjectStatus
+													text="{= '@' + ${imagesModel>lessParam}}"
+													state="Information"
+													class="sapUiTinyMarginTop" />
+											</VBox>
+											<HBox>
+												<Button
+													icon="sap-icon://copy"
+													type="Transparent"
+													tooltip="Copy LESS parameter name to clipboard"
+													press="onCopyLessParam" />
+												<Button
+													icon="sap-icon://delete"
+													type="Transparent"
+													tooltip="Delete image"
+													press="onDeleteImage" />
+											</HBox>
+										</HBox>
+									</CustomListItem>
+								</List>
+							</VBox>
+						</Panel>
+
 						<!-- Custom CSS Panel -->
 						<Panel expandable="true" expanded="false" class="sapUiSmallMarginTop">
 							<headerToolbar>

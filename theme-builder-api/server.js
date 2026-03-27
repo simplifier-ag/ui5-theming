@@ -30,6 +30,11 @@ const app = express();
 const port = process.env.PORT || 3000;
 const UI5_VERSION = process.env.UI5_VERSION || '1.96.40';
 
+// Shared directory for files uploaded via theme-designer-app.
+// Must point to the same path as SHARED_DIR in theme-designer-app.
+// Structure: <SHARED_DIR>/files/<themeId>/<filename>
+const SHARED_DIR = process.env.SHARED_DIR || path.join(__dirname, '..', 'theme-designer-app', 'server', 'data', 'shared');
+
 // Preview files live in preview/ — view XML can be overridden via Docker volume
 const PREVIEW_DIR = path.join(__dirname, 'preview');
 const PREVIEW_VIEW_XML = fssync.readFileSync(path.join(PREVIEW_DIR, 'Preview.view.xml'), 'utf8');
@@ -38,6 +43,41 @@ const PREVIEW_TEMPLATE = fssync.readFileSync(path.join(PREVIEW_DIR, 'index.html.
 // In-memory CSS cache: cacheKey → { libs: Map<libraryName, css>, expiresAt: number }
 const previewCache = new Map();
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+/**
+ * Returns the absolute filesystem path for a theme file on the shared volume.
+ * Structure mirrors DATABASE_DIR/files/<themeId>/<filename> in theme-designer-app.
+ */
+function getSharedFilePath(themeId, filename) {
+	return path.join(SHARED_DIR, 'files', String(themeId), filename);
+}
+
+/**
+ * Converts an image filename to its auto-generated LESS/CSS parameter name.
+ * logo.png          → themeImageLogo
+ * background.png    → themeImageBackground
+ * my-header.png     → themeImageMyHeader
+ * company_logo.png  → themeImageCompanyLogo
+ *
+ * NOTE: Must stay in sync with filenameToLessParam() in theme-designer-app/server/server.js
+ * (used there only for display purposes in the image list API).
+ */
+function filenameToLessParam(filename) {
+	const base = path.basename(filename, path.extname(filename));
+	const words = base.split(/[-_\s]+/).filter(Boolean);
+	const pascal = words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
+	return 'themeImage' + pascal;
+}
+
+/**
+ * Builds a LESS variable block from an image list.
+ * Always uses relative url('images/<filename>') — identical in preview and export.
+ */
+function buildImageLessVars(images) {
+	return images
+		.map(img => `@${filenameToLessParam(img.filename)}: url('images/${img.filename}');`)
+		.join('\n');
+}
 
 function getCacheKey(params) {
 	return crypto
@@ -144,17 +184,29 @@ app.get('/api/theme-defaults/:baseTheme', (req, res) => {
  */
 app.post('/api/preview-compile', async (req, res) => {
 	try {
-		const { baseTheme = 'sap_fiori_3', brandColor, focusColor, shellColor, customCss = '', version } = req.body;
+		const { baseTheme = 'sap_fiori_3', brandColor, focusColor, shellColor, customCss = '', backgroundImage = '', version, files = [] } = req.body;
 
 		const resolvedBaseTheme = VALID_BASE_THEMES.includes(baseTheme) ? baseTheme : 'sap_fiori_3';
 		const defaults = getThemeDefaults(resolvedBaseTheme);
+
+		// Identical LESS var generation as in export — url('images/<filename>') relative paths.
+		// Images are served via preview-resources just like CSS and fonts.
+		const imageFiles = files.filter(f => f.type === 'image');
+		let effectiveCustomCss = customCss;
+		if (imageFiles.length > 0) {
+			effectiveCustomCss = buildImageLessVars(imageFiles) + '\n' + effectiveCustomCss;
+		}
+		if (backgroundImage && imageFiles.some(f => f.filename === backgroundImage)) {
+			const paramName = filenameToLessParam(backgroundImage);
+			effectiveCustomCss += `\n.sapUiGlobalBackgroundImage {\n\tbackground-image: @${paramName} !important;\n}`;
+		}
 
 		const compileParams = {
 			baseTheme: resolvedBaseTheme,
 			brandColor: brandColor || defaults.brandColor,
 			focusColor: focusColor || defaults.focusColor,
 			shellColor: shellColor || defaults.shellColor,
-			customCss
+			customCss: effectiveCustomCss
 		};
 
 		const cacheKey = getCacheKey(compileParams);
@@ -166,6 +218,7 @@ app.post('/api/preview-compile', async (req, res) => {
 			previewCache.set(cacheKey, {
 				libs,
 				params: compileParams,
+				files: imageFiles,   // cached so preview-resources can serve images
 				expiresAt: Date.now() + CACHE_TTL_MS
 			});
 		} else {
@@ -218,7 +271,7 @@ const FONT_MIME_TYPES = {
 /**
  * GET /api/preview-resources/:cacheKey/* - Serve CSS, JSON params, and font files for UI5 theme-roots.
  */
-app.get('/api/preview-resources/:cacheKey/*', (req, res) => {
+app.get('/api/preview-resources/:cacheKey/*', async (req, res) => {
 	const { cacheKey } = req.params;
 	const wildcardPath = req.params[0]; // e.g. "sap/ui/core/themes/preview_theme/library.css"
 
@@ -233,15 +286,36 @@ app.get('/api/preview-resources/:cacheKey/*', (req, res) => {
 
 	const libraryName = wildcardPath.substring(0, themePos).replace(/\//g, '.');
 
-	// library-parameters.json — serve theme color params as JSON
+	// library-parameters.json — identical to export: colors + image params
 	if (wildcardPath.endsWith('/library-parameters.json')) {
 		const p = entry.params;
+		const imageParams = {};
+		for (const f of (entry.files || [])) {
+			imageParams[filenameToLessParam(f.filename)] = `url('images/${f.filename}')`;
+		}
 		res.setHeader('Content-Type', 'application/json');
 		return res.json({
 			sapBrandColor: p.brandColor,
 			sapContent_FocusColor: p.focusColor,
-			sapShellColor: p.shellColor
+			sapShellColor: p.shellColor,
+			...imageParams
 		});
+	}
+
+	// Image files — serve from shared volume (same files as in the export ZIP)
+	const imagesMatch = wildcardPath.match(/\/images\/([^/]+)$/);
+	if (imagesMatch) {
+		const filename = imagesMatch[1];
+		const fileEntry = (entry.files || []).find(f => f.filename === filename);
+		if (!fileEntry) return res.status(404).send('Image not found in cache');
+		const filePath = getSharedFilePath(fileEntry.themeId, filename);
+		try {
+			const data = await fs.readFile(filePath);
+			res.setHeader('Content-Type', fileEntry.mimeType || 'application/octet-stream');
+			return res.send(data);
+		} catch {
+			return res.status(404).send('Image file not found on disk');
+		}
 	}
 
 	// Font files — serve directly from the @openui5 npm packages
@@ -289,10 +363,12 @@ app.get('/api/preview-resources/:cacheKey/*', (req, res) => {
  */
 app.post('/api/compile-theme', async (req, res) => {
 	try {
-		const { themeId, themeName, baseTheme, brandColor, focusColor, shellColor, customCss, description } = req.body;
+		const { themeId, themeName, baseTheme, brandColor, focusColor, shellColor, customCss, backgroundImage = '', description, files = [] } = req.body;
+
+		const imageFiles = files.filter(f => f.type === 'image');
 
 		console.log(`[Export] UI5 ${UI5_VERSION} - Theme: ${themeId} (${themeName})`);
-		console.log(`[Export] Base: ${baseTheme}, Brand: ${brandColor}`);
+		console.log(`[Export] Base: ${baseTheme}, Brand: ${brandColor}, Files: ${files.length} (${imageFiles.length} images)`);
 
 		// Validate input
 		if (!themeId || !themeName || !baseTheme || !brandColor) {
@@ -307,6 +383,21 @@ app.post('/api/compile-theme', async (req, res) => {
 			});
 		}
 
+		let effectiveCustomCss = customCss || '';
+		if (imageFiles.length > 0) {
+			effectiveCustomCss = buildImageLessVars(imageFiles) + '\n' + effectiveCustomCss;
+		}
+		if (backgroundImage && imageFiles.some(f => f.filename === backgroundImage)) {
+			const paramName = filenameToLessParam(backgroundImage);
+			effectiveCustomCss += `\n.sapUiGlobalBackgroundImage {\n\tbackground-image: @${paramName} !important;\n}`;
+		}
+
+		// Build image parameters map for library-parameters.json
+		const imageParams = {};
+		for (const f of imageFiles) {
+			imageParams[filenameToLessParam(f.filename)] = `url('images/${f.filename}')`;
+		}
+
 		// Build complete theme using ThemeBuilder
 		console.log('[Export] Building theme with ThemeBuilder...');
 		const themeResults = await themeBuilder.buildTheme({
@@ -314,7 +405,7 @@ app.post('/api/compile-theme', async (req, res) => {
 			brandColor,
 			focusColor,
 			shellColor,
-			customCss,
+			customCss: effectiveCustomCss,
 			baseTheme
 		});
 
@@ -354,11 +445,12 @@ app.post('/api/compile-theme', async (req, res) => {
 			}, null, 2);
 			await fs.writeFile(path.join(libraryThemeDir, '.theming'), themingMetadata);
 
-			// Create library-parameters.json (theme parameters)
+			// Create library-parameters.json (theme parameters incl. image params)
 			const parameters = {
 				sapBrandColor: brandColor,
 				sapContent_FocusColor: focusColor,
-				sapShellColor: shellColor
+				sapShellColor: shellColor,
+				...imageParams   // e.g. themeImageLogo: "url('images/logo.png')"
 			};
 			await fs.writeFile(
 				path.join(libraryThemeDir, 'library-parameters.json'),
@@ -420,8 +512,25 @@ app.post('/api/compile-theme', async (req, res) => {
 				} catch (error) {
 					console.warn(`[Export] Warning: Could not copy base fonts from ${baseFontsDir}:`, error.message);
 				}
+
+			}
+
+		// Copy uploaded images into every library's images/ folder.
+		// Custom CSS with url('images/X') is compiled into all libraries, so the image
+		// must be resolvable from each library's CSS location — not just sap.ui.core.
+		if (imageFiles.length > 0) {
+			const imagesTargetDir = path.join(libraryThemeDir, 'images');
+			await fs.mkdir(imagesTargetDir, { recursive: true });
+			for (const f of imageFiles) {
+				const srcPath = getSharedFilePath(f.themeId, f.filename);
+				try {
+					await fs.copyFile(srcPath, path.join(imagesTargetDir, f.filename));
+				} catch (e) {
+					console.warn(`[Export]   Could not copy image ${f.filename} to ${libraryName}: ${e.message}`);
+				}
 			}
 		}
+	}
 
 		// Create exportThemesInfo.json
 		const libraryList = Object.keys(themeResults).reduce((acc, libName) => {

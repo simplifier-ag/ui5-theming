@@ -1,6 +1,8 @@
 // Load environment variables from .env file (in parent directory)
 // In Docker, environment variables are set via docker-compose.yml, so .env is optional
 const path = require('path');
+const fsPromises = require('fs').promises;
+const fssync = require('fs');
 const dotenvPath = path.join(__dirname, '../../.env');
 require('dotenv').config({ path: dotenvPath });
 
@@ -13,7 +15,25 @@ const passport = require('passport');
 const session = require('express-session');
 const { Strategy: OpenIDConnectStrategy } = require('passport-openidconnect');
 const BuilderRouter = require('./router');
-const { statements, initialize } = require('./database');
+const { statements, fileStatements, initialize } = require('./database');
+
+// Directory for shared files between theme-designer and theme-builder (uploaded images etc.)
+// Structure: <SHARED_DIR>/files/<themeDbId>/<filename>
+const SHARED_DIR = process.env.SHARED_DIR || path.join(__dirname, 'data', 'shared');
+
+function getThemeFilesDir(themeDbId) {
+    return path.join(SHARED_DIR, 'files', String(themeDbId));
+}
+
+// Converts an image filename to its LESS parameter name — for display in the image list API.
+// NOTE: Must stay in sync with filenameToLessParam() in theme-builder-api/server.js
+// (the builder uses it for actual LESS compilation and library-parameters.json generation).
+function filenameToLessParam(filename) {
+    const base = path.basename(filename, path.extname(filename));
+    const words = base.split(/[-_\s]+/).filter(Boolean);
+    const pascal = words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
+    return 'themeImage' + pascal;
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -27,6 +47,19 @@ app.set('trust proxy', 1);
 
 // Configure multer for file uploads (memory storage)
 const upload = multer({ storage: multer.memoryStorage() });
+
+// Separate multer instance for image uploads: image/* only, 5 MB limit
+const imageUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only image files are allowed'));
+        }
+    }
+});
 
 // Keycloak OAuth Configuration
 const KEYCLOAK_URL = process.env.KEYCLOAK_URL || '';
@@ -306,7 +339,7 @@ app.get('/api/themes/:id', ensureAuthenticated, async (req, res) => {
 // POST /api/themes - Create new theme
 app.post('/api/themes', ensureAuthenticated, async (req, res) => {
 	try {
-		const { themeId, name, baseTheme, brandColor, focusColor, shellColor, customCss, description, ui5Version } = req.body;
+		const { themeId, name, baseTheme, brandColor, focusColor, shellColor, customCss, backgroundImage, description, ui5Version } = req.body;
 		const userId = getUserId(req);
 
 		// Validate required fields
@@ -330,6 +363,7 @@ app.post('/api/themes', ensureAuthenticated, async (req, res) => {
 			focusColor: focusColor || defaults.focusColor,
 			shellColor: shellColor || defaults.shellColor,
 			customCss: customCss || '',
+			backgroundImage: backgroundImage || '',
 			description: description || '',
 			ui5Version: themeUi5Version,
 			userId,
@@ -348,7 +382,7 @@ app.post('/api/themes', ensureAuthenticated, async (req, res) => {
 // PUT /api/themes/:id - Update theme
 app.put('/api/themes/:id', ensureAuthenticated, async (req, res) => {
 	try {
-		const { themeId, name, baseTheme, brandColor, focusColor, shellColor, customCss, description, ui5Version } = req.body;
+		const { themeId, name, baseTheme, brandColor, focusColor, shellColor, customCss, backgroundImage, description, ui5Version } = req.body;
 		const id = req.params.id;
 		const userId = getUserId(req);
 
@@ -380,6 +414,7 @@ app.put('/api/themes/:id', ensureAuthenticated, async (req, res) => {
 			focusColor,
 			shellColor: shellColor || defaults.shellColor,
 			customCss: customCss || '',
+			backgroundImage: backgroundImage || '',
 			description: description || '',
 			ui5Version: themeUi5Version,
 			userId,
@@ -405,6 +440,21 @@ app.delete('/api/themes/:id', ensureAuthenticated, async (req, res) => {
 		if (!existingTheme) {
 			return res.status(404).json({ error: 'Theme not found' });
 		}
+
+		// Delete all theme files (filesystem + DB rows) before removing the theme
+		const themeImages = await fileStatements.getByThemeAndType.all(existingTheme.id, 'image');
+		for (const f of themeImages) {
+			try {
+				await fsPromises.unlink(path.join(getThemeFilesDir(existingTheme.id), f.filename));
+			} catch (e) {
+				if (e.code !== 'ENOENT') throw e;
+			}
+		}
+		// Remove the entire files directory for this theme
+		try {
+			await fsPromises.rm(path.join(SHARED_DIR, 'files', String(existingTheme.id)), { recursive: true, force: true });
+		} catch {}
+		await fileStatements.deleteByTheme.run(existingTheme.id);
 
 		await statements.deleteTheme.run(themeId, userId);
 		res.status(204).send();
@@ -603,28 +653,131 @@ app.get('/api/preview-resources/:cacheKey/*', async (req, res) => {
 	}
 });
 
+// ========================================
+// Theme Files API (Images, future: Fonts)
+// ========================================
+
+// GET /api/themes/:id/images — list images for a theme
+app.get('/api/themes/:id/images', ensureAuthenticated, async (req, res) => {
+    try {
+        const userId = getUserId(req);
+        const theme = await statements.getThemeById.get(req.params.id, userId);
+        if (!theme) return res.status(404).json({ error: 'Theme not found' });
+
+        const images = await fileStatements.getByThemeAndType.all(theme.id, 'image');
+        res.json(images.map(img => ({
+            ...img,
+            lessParam: filenameToLessParam(img.filename)
+        })));
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch images', details: error.message });
+    }
+});
+
+// POST /api/themes/:id/images — upload an image
+app.post('/api/themes/:id/images', ensureAuthenticated, imageUpload.single('image'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'No image uploaded' });
+
+        const userId = getUserId(req);
+        const theme = await statements.getThemeById.get(req.params.id, userId);
+        if (!theme) return res.status(404).json({ error: 'Theme not found' });
+
+        // Sanitise filename: keep only safe characters, lowercase
+        const ext = path.extname(req.file.originalname).toLowerCase();
+        let filename = path.basename(req.file.originalname, ext)
+            .replace(/[^a-z0-9_\-]/gi, '_')
+            .toLowerCase() + ext;
+
+        const dir = getThemeFilesDir(theme.id);
+        await fsPromises.mkdir(dir, { recursive: true });
+
+        // Avoid collision: prefix with timestamp if name already exists
+        if (fssync.existsSync(path.join(dir, filename))) {
+            filename = `${Date.now()}_${filename}`;
+        }
+
+        await fsPromises.writeFile(path.join(dir, filename), req.file.buffer);
+
+        const result = await fileStatements.create.run({
+            themeId: theme.id,
+            type: 'image',
+            filename,
+            mimeType: req.file.mimetype,
+            size: req.file.size,
+            createdAt: new Date().toISOString()
+        });
+        const img = await fileStatements.getById.get(result.lastInsertRowid, theme.id);
+        res.status(201).json({
+            ...img,
+            lessParam: filenameToLessParam(img.filename)
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to upload image', details: error.message });
+    }
+});
+
+// DELETE /api/themes/:id/images/:imageId — delete an image
+app.delete('/api/themes/:id/images/:imageId', ensureAuthenticated, async (req, res) => {
+    try {
+        const userId = getUserId(req);
+        const theme = await statements.getThemeById.get(req.params.id, userId);
+        if (!theme) return res.status(404).json({ error: 'Theme not found' });
+
+        const img = await fileStatements.getById.get(req.params.imageId, theme.id);
+        if (!img || img.type !== 'image') return res.status(404).json({ error: 'Image not found' });
+
+        try {
+            await fsPromises.unlink(path.join(getThemeFilesDir(theme.id), img.filename));
+        } catch (e) {
+            if (e.code !== 'ENOENT') throw e;
+        }
+
+        await fileStatements.deleteOne.run(img.id, theme.id);
+        res.status(204).send();
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to delete image', details: error.message });
+    }
+});
+
+
 // Theme compiler endpoint (proxied to version-specific Builder API)
 app.post('/api/compile-theme', ensureAuthenticated, async (req, res) => {
 	try {
-		const { ui5Version, themeId, themeName, baseTheme, brandColor, focusColor, shellColor, customCss, description } = req.body;
+		const { id, ui5Version, themeId, themeName, baseTheme, brandColor, focusColor, shellColor, customCss, backgroundImage, description } = req.body;
 
 		console.log(`[Compile Proxy] UI5 ${ui5Version}, Theme: ${themeId} (${themeName})`);
 
-		// Proxy request to appropriate Builder API
+		// Build the files metadata array — the builder reads the actual binaries from the
+		// shared FILES_BASE_DIR volume using themeId + filename. No binary transfer needed.
+		let filesPayload = [];
+		if (id) {
+			const userId = getUserId(req);
+			const theme = await statements.getThemeById.get(id, userId);
+			if (theme) {
+				const dbFiles = await fileStatements.getByThemeAndType.all(theme.id, 'image');
+				filesPayload = dbFiles.map(f => ({
+					themeId: theme.id,
+					type: f.type,
+					filename: f.filename,
+					mimeType: f.mimeType
+				}));
+			}
+		}
+
+		// Proxy to builder — builder reads files from shared volume, handles LESS vars + ZIP
 		const response = await builderRouter.proxyRequest(
 			ui5Version,
 			'/api/compile-theme',
 			'POST',
-			{ themeId, themeName, baseTheme, brandColor, focusColor, shellColor, customCss, description }
+			{ themeId, themeName, baseTheme, brandColor, focusColor, shellColor, customCss, backgroundImage: backgroundImage || '', description, files: filesPayload }
 		);
 
-		// Forward ZIP response to client
 		if (response.headers['content-type'] === 'application/zip') {
 			res.setHeader('Content-Type', 'application/zip');
 			res.setHeader('Content-Disposition', response.headers['content-disposition']);
 			res.status(response.status).send(response.data);
 		} else {
-			// Error response (JSON)
 			res.status(response.status).json(response.data);
 		}
 

@@ -241,10 +241,6 @@ sap.ui.define([
 			this.byId("descriptionInput").setValue("");
 		},
 
-		_isValidColor: function (sColor) {
-			return /^#[0-9A-F]{6}$/i.test(sColor);
-		},
-
 		// Theme Import Handlers
 
 		onImportTheme: function () {
@@ -283,8 +279,6 @@ sap.ui.define([
 			const file = event.target.files[0];
 			if (!file) return;
 
-			console.log('Selected import file:', file.name);
-
 			// Store selected file
 			this._selectedImportFile = file;
 
@@ -305,8 +299,6 @@ sap.ui.define([
 			// Get selected UI5 version
 			const oVersionSelect = this.byId( "ui5VersionImportSelect");
 			const ui5Version = oVersionSelect.getSelectedKey();
-
-			console.log('Importing theme with UI5 version:', ui5Version);
 
 			// Create FormData to upload the file
 			const formData = new FormData();

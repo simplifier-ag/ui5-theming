@@ -4,7 +4,8 @@ const path = require('path');
 const dotenvPath = path.join(__dirname, '../../.env');
 require('dotenv').config({ path: dotenvPath });
 
-const dbDir = process.env.DATABASE_DIR || __dirname;
+const dbDir = process.env.DATABASE_DIR || path.join(__dirname, 'data', 'db');
+require('fs').mkdirSync(dbDir, { recursive: true });
 
 module.exports = {
     client: process.env.DB_TYPE === 'mysql' ? 'mysql2' : 'better-sqlite3',

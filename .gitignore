@@ -27,13 +27,8 @@ theme-designer-app/server/temp/
 theme-builder-api/temp/
 *.zip
 
-# SQLite database files (local development only)
-server/themes.db
-server/themes.db-shm
-server/themes.db-wal
-theme-designer-app/server/data/*.db
-theme-designer-app/server/data/*.db-shm
-theme-designer-app/server/data/*.db-wal
+# SQLite database files and uploaded files (local development only)
+theme-designer-app/server/data/
 *.db
 *.db-shm
 *.db-wal

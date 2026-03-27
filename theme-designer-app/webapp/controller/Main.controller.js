@@ -1,11 +1,12 @@
 sap.ui.define([
 	"./BaseController",
 	"sap/m/MessageBox",
+	"sap/m/MessageToast",
 	"sap/ui/model/json/JSONModel",
 	"sap/ui/unified/ColorPickerPopover",
 	"sap/ui/unified/ColorPickerDisplayMode",
 	"sap/ui/unified/ColorPickerMode"
-], function (BaseController, MessageBox, JSONModel, ColorPickerPopover, ColorPickerDisplayMode, ColorPickerMode) {
+], function (BaseController, MessageBox, MessageToast, JSONModel, ColorPickerPopover, ColorPickerDisplayMode, ColorPickerMode) {
 	"use strict";
 
 	return BaseController.extend("themedesigner.controller.Main", {
@@ -23,11 +24,13 @@ sap.ui.define([
 				ui5Version: "1.96.40",  // Default UI5 version
 				customCss: "/* Add your custom CSS here */\n",
 				description: "",
-				previewBusy: false,
-
 				isModified: false
 			});
 			this.getView().setModel(oThemeModel, "themeModel");
+
+			// Initialize images model
+			var oImagesModel = new JSONModel({ images: [] });
+			this.getView().setModel(oImagesModel, "imagesModel");
 
 			// Initialize debounce timer for preview updates
 			this._previewDebounceTimer = null;
@@ -73,14 +76,14 @@ sap.ui.define([
 						shellColor: oTheme.shellColor || "#354a5f",
 						ui5Version: oTheme.ui5Version || "1.96.40",
 						customCss: oTheme.customCss || "/* Add your custom CSS here */\n",
+						backgroundImage: oTheme.backgroundImage || "",
 						description: oTheme.description || "",
-						isModified: false,
-						previewBusy: false,
-
+						isModified: false
 					});
 
 						// Trigger initial preview
 					this._applyPreview();
+					this._loadImages(oTheme.id);
 				}.bind(this))
 				.catch(function (error) {
 					console.error('Error loading theme:', error);
@@ -241,6 +244,7 @@ sap.ui.define([
 				shellColor: oModel.getProperty("/shellColor"),
 				ui5Version: oModel.getProperty("/ui5Version"),
 				customCss: oModel.getProperty("/customCss"),
+				backgroundImage: oModel.getProperty("/backgroundImage") || "",
 				description: oModel.getProperty("/description")
 			};
 
@@ -278,49 +282,6 @@ sap.ui.define([
 				}.bind(this));
 		},
 
-		onBackToOverview: function () {
-			var oModel = this.getView().getModel("themeModel");
-			var bModified = oModel.getProperty("/isModified");
-
-			if (bModified) {
-				MessageBox.confirm(
-					"You have unsaved changes. Are you sure you want to leave?",
-					{
-						title: "Unsaved Changes",
-						onClose: function (sAction) {
-							if (sAction === MessageBox.Action.OK) {
-								var oRouter = sap.ui.core.UIComponent.getRouterFor(this);
-								oRouter.navTo("themeOverview");
-							}
-						}.bind(this)
-					}
-				);
-			} else {
-				var oRouter = sap.ui.core.UIComponent.getRouterFor(this);
-				oRouter.navTo("themeOverview");
-			}
-		},
-
-		_darkenColor: function (hex, percent) {
-			// Remove # if present
-			hex = hex.replace('#', '');
-
-			// Convert to RGB
-			var r = parseInt(hex.substring(0, 2), 16);
-			var g = parseInt(hex.substring(2, 4), 16);
-			var b = parseInt(hex.substring(4, 6), 16);
-
-			// Darken
-			r = Math.max(0, Math.floor(r * (100 - percent) / 100));
-			g = Math.max(0, Math.floor(g * (100 - percent) / 100));
-			b = Math.max(0, Math.floor(b * (100 - percent) / 100));
-
-			// Convert back to hex
-			return '#' +
-				('0' + r.toString(16)).slice(-2) +
-				('0' + g.toString(16)).slice(-2) +
-				('0' + b.toString(16)).slice(-2);
-		},
 
 		_ensureHexColor: function (color) {
 			// If already hex format, return as-is
@@ -365,13 +326,31 @@ sap.ui.define([
 
 		_doApplyPreview: function () {
 			var oModel = this.getView().getModel("themeModel");
+			var iDbId = oModel.getProperty("/id");
+
+			// Pass files metadata (same shape as compile-theme payload) — the builder handles
+			// LESS var generation and url('images/X') rewriting in customCss.
+			// previewUrl is already stored on each image record by the server.
+			var aFiles = iDbId
+				? (this.getView().getModel("imagesModel").getProperty("/images") || []).map(function (img) {
+					return {
+						themeId: iDbId,
+						type: img.type || 'image',
+						filename: img.filename,
+						mimeType: img.mimeType
+					};
+				})
+				: [];
+
 			var oData = {
 				baseTheme: oModel.getProperty("/baseTheme"),
 				brandColor: oModel.getProperty("/brandColor"),
 				focusColor: oModel.getProperty("/focusColor"),
 				shellColor: oModel.getProperty("/shellColor"),
 				customCss: oModel.getProperty("/customCss") || '',
-				version: oModel.getProperty("/ui5Version") || '1.96.40'
+				backgroundImage: oModel.getProperty("/backgroundImage") || '',
+				version: oModel.getProperty("/ui5Version") || '1.96.40',
+				files: aFiles
 			};
 
 			this.byId("previewContainer").setBusy(true);
@@ -402,6 +381,7 @@ sap.ui.define([
 			var oThemeModel = this.getView().getModel("themeModel");
 
 			var oThemeData = {
+				id: oThemeModel.getProperty("/id"),
 				themeId: oThemeModel.getProperty("/themeId"),
 				themeName: oThemeModel.getProperty("/name"),
 				baseTheme: oThemeModel.getProperty("/baseTheme"),
@@ -410,6 +390,7 @@ sap.ui.define([
 				shellColor: oThemeModel.getProperty("/shellColor"),
 				ui5Version: oThemeModel.getProperty("/ui5Version"),
 				customCss: oThemeModel.getProperty("/customCss"),
+				backgroundImage: oThemeModel.getProperty("/backgroundImage") || "",
 				description: oThemeModel.getProperty("/description")
 			};
 
@@ -459,13 +440,125 @@ sap.ui.define([
 			}.bind(this));
 		},
 
+		_loadImages: function (iDbId) {
+			fetch("/api/themes/" + iDbId + "/images", { credentials: "include" })
+				.then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
+				.then(function (aImages) {
+					this.getView().getModel("imagesModel").setProperty("/images", aImages);
+					this._updateBackgroundImageSelect(aImages);
+				}.bind(this))
+				.catch(function (e) { console.error("Failed to load images:", e); });
+		},
+
+		_updateBackgroundImageSelect: function (aImages) {
+			var oSelect = this.byId("backgroundImageSelect");
+			var sCurrentValue = this.getView().getModel("themeModel").getProperty("/backgroundImage") || "";
+			oSelect.removeAllItems();
+			oSelect.addItem(new sap.ui.core.Item({ key: "", text: "– None –" }));
+			aImages.forEach(function (img) {
+				oSelect.addItem(new sap.ui.core.Item({ key: img.filename, text: img.filename }));
+			});
+			oSelect.setSelectedKey(sCurrentValue);
+		},
+
+		onBackgroundImageChange: function (oEvent) {
+			var sKey = oEvent.getParameter("selectedItem").getKey();
+			this.getView().getModel("themeModel").setProperty("/backgroundImage", sKey);
+			this.getView().getModel("themeModel").setProperty("/isModified", true);
+			this._applyPreview();
+		},
+
+
+		onUploadImage: function () {
+			if (!this._imageFileInput) {
+				this._imageFileInput = document.createElement("input");
+				this._imageFileInput.type = "file";
+				this._imageFileInput.accept = "image/*";
+				this._imageFileInput.style.display = "none";
+				document.body.appendChild(this._imageFileInput);
+				this._imageFileInput.addEventListener("change", this._onImageFileSelected.bind(this));
+			}
+			this._imageFileInput.value = "";
+			this._imageFileInput.click();
+		},
+
+		_onImageFileSelected: function (event) {
+			var file = event.target.files[0];
+			if (!file) return;
+			var iDbId = this.getView().getModel("themeModel").getProperty("/id");
+			var formData = new FormData();
+			formData.append("image", file);
+			this.getView().setBusy(true);
+			fetch("/api/themes/" + iDbId + "/images", {
+				method: "POST",
+				body: formData,
+				credentials: "include"
+			})
+				.then(function (r) {
+					return r.ok ? r.json() : r.json().then(function (e) { return Promise.reject(e); });
+				})
+				.then(function () {
+					this._loadImages(iDbId);
+					MessageToast.show("Image uploaded successfully");
+				}.bind(this))
+				.catch(function (e) {
+					MessageBox.error("Upload failed: " + (e.error || e.message || "Unknown error"));
+				})
+				.finally(function () {
+					this.getView().setBusy(false);
+				}.bind(this));
+		},
+
+		onDeleteImage: function (oEvent) {
+			var oCtx = oEvent.getSource().getBindingContext("imagesModel");
+			var oImg = oCtx.getObject();
+			var iDbId = this.getView().getModel("themeModel").getProperty("/id");
+			MessageBox.confirm('Delete image "' + oImg.filename + '"?', {
+				title: "Delete Image",
+				onClose: function (sAction) {
+					if (sAction !== MessageBox.Action.OK) return;
+					fetch("/api/themes/" + iDbId + "/images/" + oImg.id, {
+						method: "DELETE",
+						credentials: "include"
+					})
+						.then(function (r) {
+							if (!r.ok) throw new Error("Delete failed");
+							return this._loadImages(iDbId);
+						}.bind(this))
+						.catch(function (e) { MessageBox.error(e.message); });
+				}.bind(this)
+			});
+		},
+
+		onCopyLessParam: function (oEvent) {
+			var sParam = '@' + oEvent.getSource().getBindingContext("imagesModel").getProperty("lessParam");
+			if (navigator.clipboard) {
+				navigator.clipboard.writeText(sParam).then(function () {
+					MessageToast.show("Copied: " + sParam);
+				});
+			} else {
+				MessageToast.show(sParam);
+			}
+		},
+
 		onExit: function () {
 			// Cleanup ColorPicker popovers
 			if (this.oBrandColorPicker) {
 				this.oBrandColorPicker.destroy();
 				this.oBrandColorPicker = null;
 			}
-	
+			if (this.oFocusColorPicker) {
+				this.oFocusColorPicker.destroy();
+				this.oFocusColorPicker = null;
+			}
+			if (this.oShellColorPicker) {
+				this.oShellColorPicker.destroy();
+				this.oShellColorPicker = null;
+			}
+			if (this._imageFileInput) {
+				document.body.removeChild(this._imageFileInput);
+				this._imageFileInput = null;
+			}
 		},
 
 		onReset: function () {
