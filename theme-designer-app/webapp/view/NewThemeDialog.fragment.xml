@@ -25,6 +25,7 @@
                     <Label text="Display Name" required="true" />
                     <Input
                         id="themeNameInput"
+                        value="{newTheme>/name}"
                         placeholder="e.g., My Custom Theme"
                         required="true"
                         valueStateText="Display name is required" />
@@ -32,6 +33,7 @@
                     <Label text="Technical ID" required="true" />
                     <Input
                         id="themeIdInput"
+                        value="{newTheme>/themeId}"
                         placeholder="e.g., my_custom_theme"
                         required="true"
                         valueStateText="Technical ID is required" />
@@ -39,7 +41,7 @@
                     <Label text="Base Theme" required="true" />
                     <Select
                         id="baseThemeSelect"
-                        selectedKey="sap_horizon"
+                        selectedKey="{newTheme>/baseTheme}"
                         required="true">
                         <items>
                             <core:Item key="sap_horizon" text="SAP Horizon" />
@@ -62,6 +64,7 @@
                     <Label text="Description" />
                     <TextArea
                         id="descriptionInput"
+                        value="{newTheme>/description}"
                         placeholder="Optional description"
                         rows="3"
                         maxLength="500" />

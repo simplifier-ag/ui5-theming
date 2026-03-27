@@ -444,26 +444,19 @@ sap.ui.define([
 			fetch("/api/themes/" + iDbId + "/images", { credentials: "include" })
 				.then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
 				.then(function (aImages) {
-					this.getView().getModel("imagesModel").setProperty("/images", aImages);
-					this._updateBackgroundImageSelect(aImages);
+					const oImagesModel = this.getView().getModel("imagesModel");
+					oImagesModel.setProperty("/images", aImages);
+					const aOptions = [{ key: "", text: "– None –" }].concat(
+						aImages.map(function (img) { return { key: img.filename, text: img.filename }; })
+					);
+					oImagesModel.setProperty("/selectOptions", aOptions);
 				}.bind(this))
 				.catch(function (e) { console.error("Failed to load images:", e); });
 		},
 
-		_updateBackgroundImageSelect: function (aImages) {
-			var oSelect = this.byId("backgroundImageSelect");
-			var sCurrentValue = this.getView().getModel("themeModel").getProperty("/backgroundImage") || "";
-			oSelect.removeAllItems();
-			oSelect.addItem(new sap.ui.core.Item({ key: "", text: "– None –" }));
-			aImages.forEach(function (img) {
-				oSelect.addItem(new sap.ui.core.Item({ key: img.filename, text: img.filename }));
-			});
-			oSelect.setSelectedKey(sCurrentValue);
-		},
 
-		onBackgroundImageChange: function (oEvent) {
-			var sKey = oEvent.getParameter("selectedItem").getKey();
-			this.getView().getModel("themeModel").setProperty("/backgroundImage", sKey);
+
+		onBackgroundImageChange: function () {
 			this.getView().getModel("themeModel").setProperty("/isModified", true);
 			this._applyPreview();
 		},

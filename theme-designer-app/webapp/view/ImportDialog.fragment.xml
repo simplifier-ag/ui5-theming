@@ -42,7 +42,7 @@
 								press="onSelectImportFile" />
 							<Text
 								id="selectedFileName"
-								text="No file selected"
+								text="{importDialog>/selectedFileName}"
 								class="sapUiSmallMarginBegin" />
 						</HBox>
 						<Text
@@ -57,7 +57,7 @@
 				id="importBtn"
 				text="Import"
 				type="Emphasized"
-				enabled="false"
+				enabled="{importDialog>/importReady}"
 				press="onConfirmImport" />
 		</beginButton>
 		<endButton>

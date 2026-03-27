@@ -22,6 +22,21 @@ sap.ui.define([
 			});
 			this.getView().setModel(oVersionsModel, "versions");
 
+			// Initialize model for New Theme dialog form
+			this.getView().setModel(new JSONModel({
+				name: "",
+				themeId: "",
+				baseTheme: "sap_horizon",
+				description: ""
+			}), "newTheme");
+
+			// Initialize model for Import dialog state
+			this.getView().setModel(new JSONModel({
+				selectedFile: null,
+				selectedFileName: "No file selected",
+				importReady: false
+			}), "importDialog");
+
 			// Attach to routing to clear selection when returning to overview
 			const oRouter = sap.ui.core.UIComponent.getRouterFor(this);
 			oRouter.getRoute("themeOverview").attachPatternMatched(this._onRouteMatched, this);
@@ -158,17 +173,12 @@ sap.ui.define([
 		// New Theme Dialog Handlers
 
 		onCreateTheme: function () {
-			const oNameInput = this.byId("themeNameInput");
-			const oIdInput = this.byId("themeIdInput");
-			const oBaseThemeSelect = this.byId("baseThemeSelect");
-			const oUi5VersionSelect = this.byId("ui5VersionSelect");
-			const oDescriptionInput = this.byId("descriptionInput");
-
-			const sName = oNameInput.getValue().trim();
-			const sThemeId = oIdInput.getValue().trim();
-			const sBaseTheme = oBaseThemeSelect.getSelectedKey();
-			const sUi5Version = oUi5VersionSelect.getSelectedKey();
-			const sDescription = oDescriptionInput.getValue().trim();
+			const oNewTheme = this.getView().getModel("newTheme");
+			const sName = oNewTheme.getProperty("/name").trim();
+			const sThemeId = oNewTheme.getProperty("/themeId").trim();
+			const sBaseTheme = oNewTheme.getProperty("/baseTheme");
+			const sDescription = oNewTheme.getProperty("/description").trim();
+			const sUi5Version = this.getView().getModel("versions").getProperty("/selectedVersion");
 
 			// Validate
 			if (!sName) {
@@ -234,11 +244,12 @@ sap.ui.define([
 		},
 
 		_resetNewThemeDialog: function () {
-			this.byId("themeNameInput").setValue("");
-			this.byId("themeIdInput").setValue("");
-			this.byId("baseThemeSelect").setSelectedKey("sap_horizon");
-			this.byId("ui5VersionSelect").setSelectedKey("1.96.40");
-			this.byId("descriptionInput").setValue("");
+			this.getView().getModel("newTheme").setData({
+				name: "",
+				themeId: "",
+				baseTheme: "sap_horizon",
+				description: ""
+			});
 		},
 
 		// Theme Import Handlers
@@ -279,30 +290,28 @@ sap.ui.define([
 			const file = event.target.files[0];
 			if (!file) return;
 
-			// Store selected file
-			this._selectedImportFile = file;
-
-			// Update UI
-			this.byId( "selectedFileName").setText(file.name);
-			this.byId( "importBtn").setEnabled(true);
+			const oImportModel = this.getView().getModel("importDialog");
+			oImportModel.setProperty("/selectedFile", file);
+			oImportModel.setProperty("/selectedFileName", file.name);
+			oImportModel.setProperty("/importReady", true);
 
 			// Reset file input for next selection
 			this._fileInput.value = '';
 		},
 
 		onConfirmImport: function () {
-			if (!this._selectedImportFile) {
+			const oImportModel = this.getView().getModel("importDialog");
+			const file = oImportModel.getProperty("/selectedFile");
+			if (!file) {
 				MessageBox.error("Please select a theme ZIP file");
 				return;
 			}
 
-			// Get selected UI5 version
-			const oVersionSelect = this.byId( "ui5VersionImportSelect");
-			const ui5Version = oVersionSelect.getSelectedKey();
+			const ui5Version = this.getView().getModel("versions").getProperty("/selectedVersion");
 
 			// Create FormData to upload the file
 			const formData = new FormData();
-			formData.append('themeZip', this._selectedImportFile);
+			formData.append('themeZip', file);
 			formData.append('ui5Version', ui5Version);
 
 			// Close dialog and show busy indicator
@@ -348,10 +357,11 @@ sap.ui.define([
 		},
 
 		onImportDialogAfterClose: function () {
-			// Reset file selection
-			this._selectedImportFile = null;
-			this.byId( "selectedFileName").setText("No file selected");
-			this.byId( "importBtn").setEnabled(false);
+			this.getView().getModel("importDialog").setData({
+				selectedFile: null,
+				selectedFileName: "No file selected",
+				importReady: false
+			});
 		},
 
 
