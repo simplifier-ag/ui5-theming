@@ -76,14 +76,18 @@ sap.ui.define([
 						shellColor: oTheme.shellColor || "#354a5f",
 						ui5Version: oTheme.ui5Version || "1.96.40",
 						customCss: oTheme.customCss || "/* Add your custom CSS here */\n",
-						backgroundImage: oTheme.backgroundImage || "",
+						backgroundImage: "",
 						description: oTheme.description || "",
 						isModified: false
 					});
 
 						// Trigger initial preview
-					this._applyPreview();
-					this._loadImages(oTheme.id);
+					// Load images first so the Select has its options before
+					// selectedKey is applied — avoids "None" showing on first load
+					this._loadImages(oTheme.id).then(function () {
+						oModel.setProperty("/backgroundImage", oTheme.backgroundImage || "");
+						this._applyPreview();
+					}.bind(this));
 				}.bind(this))
 				.catch(function (error) {
 					console.error('Error loading theme:', error);
@@ -441,7 +445,7 @@ sap.ui.define([
 		},
 
 		_loadImages: function (iDbId) {
-			fetch("/api/themes/" + iDbId + "/images", { credentials: "include" })
+			return fetch("/api/themes/" + iDbId + "/images", { credentials: "include" })
 				.then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
 				.then(function (aImages) {
 					const oImagesModel = this.getView().getModel("imagesModel");

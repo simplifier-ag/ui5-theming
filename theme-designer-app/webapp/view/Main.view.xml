@@ -13,7 +13,8 @@
 	<f:DynamicPage
 		id="dynamicPageId"
 		headerExpanded="true"
-		toggleHeaderOnTitleClick="false">
+		toggleHeaderOnTitleClick="false"
+		fitContent="true">
 		<!-- DynamicPage Title -->
 		<f:title>
 			<f:DynamicPageTitle>

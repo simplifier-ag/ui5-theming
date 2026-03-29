@@ -1,49 +1,52 @@
 # OpenUI5 Theme Designer
 
-A tool for creating and exporting custom OpenUI5 themes for version 1.96.40.
+A tool for creating, managing, and exporting custom OpenUI5 themes.
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 npm install
 npm run start:all
 ```
 
-Automatically opens http://localhost:8080/index.html - done! 🎉
+Opens http://localhost:8080 automatically.
 
 ## Features
 
-- **Brand Color Customization**: Set your company color as the brand color
-- **Focus Color**: Color for focused elements (buttons, inputs, etc.)
-- **Shell Color**: Color for the shell/header bar (theme-specific default)
-- **Custom CSS**: Add custom CSS for advanced customizations
-- **Live Preview**: Preview changes directly in the application
-- **Theme Management**: Save, edit, and manage multiple themes
-- **OAuth Authentication**: Multi-user support with Keycloak integration
-- **Theme Export**: Export themes as ZIP files for use in your UI5 apps
-- **Theme Import**: Import previously exported themes
+- **Theme Management**: Create, edit, save, and delete multiple themes
+- **Brand Color**: Set your company color as the primary brand color
+- **Focus Color**: Color for focused UI elements (inputs, buttons, etc.)
+- **Shell Color**: Color for the shell/header bar
+- **Custom CSS**: Add custom LESS/CSS for advanced customizations
+- **Image Upload**: Upload images (e.g. logos) and reference them in Custom CSS via `url('images/filename')`
+- **Live Preview**: Preview changes in real-time using compiled LESS
+- **Theme Export**: Export themes as ZIP files compatible with Simplifier and UI5 apps
+- **Theme Import**: Import previously exported themes (SAP Theme Designer format)
+- **OAuth Authentication**: Multi-user support with Keycloak/OIDC integration
+- **Multiple UI5 Versions**: Export themes for UI5 1.96.40, 1.120.x, 1.136.x
 
 ## Architecture
 
-The project consists of two components:
+The project consists of three types of components:
 
-1. **Frontend (OpenUI5 App)**: UI5 1.96.40 application on port 8080
-2. **Backend (Node.js Server)**: Theme compiler API on port 3001
+1. **Theme Designer App** (`theme-designer-app/`): OpenUI5 frontend + Express backend with OAuth, database, and routing. Exposed on port 8080.
+2. **Theme Builder API** (`theme-builder-api/`): Stateless LESS compilation service. One instance per supported UI5 version. Only reachable internally.
+3. **Database**: SQLite (default, no setup needed) or MySQL/MariaDB.
 
-**Docker:** Multi-container setup with Theme Designer App and separate Theme Builder Service available.
+In Docker, the Designer App proxies all compile/preview requests to the appropriate Builder instance based on the selected UI5 version.
 
-## Description
-
-This tool enables creating custom OpenUI5 themes without manually editing LESS files. Brand colors and other design parameters can be customized through a user-friendly interface.
-
-## Requirements
-
-- [Node.js](https://nodejs.org/) (v14 or higher)
-- [npm](https://www.npmjs.com/) or [yarn](https://yarnpkg.com/) for dependency management
+```
+Browser → :8080 (theme-designer)
+               ├── OAuth / Session
+               ├── Theme CRUD (DB)
+               ├── Image Upload (SHARED_DIR)
+               └── Proxy → theme-builder-1-96:3000
+                        → theme-builder-1-120:3000
+                        → theme-builder-1-136:3000
+```
 
 ## Installation
 
-A single command installs everything (UI5 App + Backend Server):
 ```bash
 npm install
 ```
@@ -52,256 +55,208 @@ The `postinstall` script automatically installs server dependencies as well.
 
 ## Getting Started
 
-### Recommended - Start Everything with One Command:
+### Start Everything
 
 ```bash
 npm run start:all
 ```
 
-This command automatically starts:
-- Backend API server on port 3001
-- OpenUI5 app on port 8080
+Starts the backend API (port 3001) and UI5 app (port 8080) simultaneously.
 
-The app opens automatically in your browser at http://localhost:8080/index.html
+### Start Components Individually
 
-### Alternative - Start Components Individually:
-
-**Option 1 - Shell Script (Unix/Mac):**
 ```bash
-./start-all.sh
-```
-
-**Option 2 - Manual in Separate Terminals:**
-
-Terminal 1 - Backend Server:
-```bash
+# Terminal 1 — Backend
 npm run start:server
-```
 
-Terminal 2 - UI5 App:
-```bash
+# Terminal 2 — UI5 App
 npm run start:ui
-```
-
-**Option 3 - Windows:**
-```bash
-start-all.bat
 ```
 
 ## Docker Deployment
 
-For production deployments with Docker:
-
 ```bash
-docker pull <your-org>/theme-designer:latest
-docker run -d -p 8080:8080 <your-org>/theme-designer:latest
+docker compose up -d
 ```
 
-The app is then accessible at http://localhost:8080
+Only port 8080 is exposed. All internal services communicate over the Docker network.
 
-**Environment Variables:** See `.env.example` for OAuth configuration and other options.
+**Volumes:**
+- `db-data` (named volume) — SQLite database, only used when `DB_TYPE=sqlite`
+- Bind mount for `SHARED_DIR` — uploaded files, shared between the designer and all builder instances
+
+See `docker-compose.yml` for full configuration.
 
 ## Usage
 
-1. **Sign In** (optional): Sign in with Keycloak if OAuth is enabled
-2. **Create Theme**: Create a new theme in the theme overview
-3. **Select Base Theme**: Choose the base theme (sap_horizon, sap_fiori_3)
-4. **Set Brand Color**: Enter your main color (HEX format: #007bff)
-5. **Adjust Focus Color**: Automatically calculated, can be overridden
-6. **Set Shell Color**: Color for header/shell (default depends on base theme)
-7. **Add Custom CSS**: Optional for advanced customizations
-8. **Live Preview**: Changes are automatically displayed in the preview
-9. **Save Theme**: Theme is saved to database
-10. **Export Theme**: Click "Export Theme" to get a ZIP file
-
-## Theme Installation
-
-After export:
-
-1. Extract the ZIP file
-2. Copy the theme folder to your UI5 app (e.g., to `webapp/themes/`)
-3. Activate the theme in your `index.html`:
-
-```html
-<script id="sap-ui-bootstrap"
-    src="resources/sap-ui-core.js"
-    data-sap-ui-theme="my_custom_theme@themes/my_custom_theme"
-    ...>
-</script>
-```
-
-## Backend API
-
-### POST /api/compile-theme
-
-Compiles a theme based on the specified parameters.
-
-**Request Body:**
-```json
-{
-  "themeName": "my_custom_theme",
-  "baseTheme": "sap_horizon",
-  "brandColor": "#007bff",
-  "focusColor": "#0056b3",
-  "shellColor": "#354a5f",
-  "customCss": "/* custom css */"
-}
-```
-
-**Response**: ZIP file with the compiled theme
-
-### POST /api/preview-theme
-
-Compiles theme CSS for live preview (only 3 libraries, faster).
-
-**Request Body:**
-```json
-{
-  "baseTheme": "sap_horizon",
-  "brandColor": "#007bff",
-  "focusColor": "#0056b3",
-  "shellColor": "#354a5f",
-  "customCss": "/* custom css */"
-}
-```
-
-**Response**: Compiled CSS as text/css
-
-### GET /api/health
-
-Health check endpoint
-
-## Technology Stack
-
-- **Frontend**: OpenUI5 1.96.40 (JavaScript)
-- **Backend**: Node.js, Express
-- **Authentication**: Passport.js with OAuth 2.0 / OpenID Connect (Keycloak)
-- **Database**: Knex.js with SQLite (default) or MySQL/MariaDB
-- **Theme Compiler**: less-openui5
-- **Additional Packages**: archiver, cors, body-parser, concurrently, express-session
+1. **Sign In** (if OAuth is configured)
+2. **Create Theme**: Click "New" on the overview, enter a name, technical ID, and base theme
+3. **Customize**: Set brand color, focus color, shell color, and custom CSS
+4. **Upload Images**: Upload logo or background images via the Images panel; reference them in Custom CSS with `url('images/filename')`
+5. **Preview**: Changes are compiled live and shown in the preview iframe
+6. **Save**: Saves all settings to the database
+7. **Export**: Click "Export" to download a ZIP compatible with Simplifier/UI5
 
 ## Environment Variables
 
-### OAuth Authentication (Optional)
+### OAuth / Authentication (Optional)
 
-If OAuth/OIDC authentication should be used:
+Without OAuth, all themes are created under the anonymous user.
 
 ```bash
 KEYCLOAK_URL=https://your-keycloak-instance.com
 KEYCLOAK_REALM=your-realm
-KEYCLOAK_CLIENT_ID=theme-designer
-KEYCLOAK_CLIENT_SECRET=your-client-secret
-SESSION_SECRET=your-random-secret  # Generate: openssl rand -base64 32
+CLIENT_ID=theme-designer
+CLIENT_SECRET=your-client-secret
+SESSION_SECRET=your-random-secret   # openssl rand -base64 32
 ```
 
-### Database (Optional)
+### Database
 
-SQLite is used by default (no configuration needed). To use MySQL/MariaDB instead:
+SQLite is used by default — no configuration needed.
 
 ```bash
-DB_TYPE=mysql                # sqlite (default) or mysql
+# SQLite (default)
+DATABASE_DIR=/path/to/db-dir        # Where the .db file is stored (default: server/data/db)
+
+# MySQL/MariaDB
+DB_TYPE=mysql
 DB_HOST=localhost
 DB_PORT=3306
 DB_NAME=themedesigner
 DB_USER=themedesigner
 DB_PASSWORD=your-password
-DB_ROOT_PASSWORD=root        # Only needed for Docker MySQL container
 DB_SSL=false
 ```
 
-To migrate existing data from SQLite to MySQL:
+### File Storage
+
+```bash
+SHARED_DIR=/path/to/shared          # Uploaded images — must be the same path in Designer and all Builder instances
+                                    # (default: server/data/shared)
+```
+
+### Theme Builder Routing
+
+```bash
+THEME_BUILDER_URLS='{"1.96.40":"http://theme-builder-1-96:3000","1.120.42":"http://theme-builder-1-120:3000"}'
+DEFAULT_UI5_VERSION=1.96.40
+```
+
+### Other
+
+```bash
+PORT=3001                           # Designer backend port (default: 3001)
+NODE_ENV=production                 # Use "development" for HTTP session cookies (local Docker)
+```
+
+## API (Designer App)
+
+### Theme CRUD
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/themes` | List all themes |
+| `GET` | `/api/themes/:id` | Get single theme |
+| `POST` | `/api/themes` | Create theme |
+| `PUT` | `/api/themes/:id` | Update theme |
+| `DELETE` | `/api/themes/:id` | Delete theme |
+
+### Images
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/themes/:id/images` | List uploaded images |
+| `POST` | `/api/themes/:id/images` | Upload image |
+| `DELETE` | `/api/themes/:id/images/:imageId` | Delete image |
+
+### Preview (proxied to Builder)
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/preview-compile` | Compile theme, return cache key |
+| `GET` | `/api/preview-page?key=...` | Serve preview HTML page |
+| `GET` | `/api/preview-resources/:key/*` | Serve compiled CSS / fonts / JSON |
+
+### Export / Import
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/compile-theme` | Compile and download theme ZIP |
+| `POST` | `/api/import-theme` | Import theme from ZIP |
+
+### Other
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/available-versions` | List supported UI5 versions |
+| `GET` | `/api/theme-defaults/:baseTheme` | Default colors for a base theme |
+| `GET` | `/api/user` | Current user info |
+| `GET` | `/api/health` | Health check |
+
+## Exported Theme Structure
+
+```
+my_theme.zip
+├── README.md
+├── exportThemesInfo.json
+└── UI5/
+    └── sap/
+        ├── ui/core/themes/my_theme/
+        │   ├── library.css
+        │   ├── library-RTL.css
+        │   ├── library-parameters.json
+        │   ├── .theming
+        │   └── fonts/              ← SAP-icons, 72-*
+        ├── m/themes/my_theme/
+        │   ├── library.css
+        │   ├── library-RTL.css
+        │   ├── library-parameters.json
+        │   └── .theming
+        └── ...                     ← 16 libraries total
+```
+
+## Theme Installation in a UI5 App
+
+```html
+<script id="sap-ui-bootstrap"
+    src="resources/sap-ui-core.js"
+    data-sap-ui-theme="my_theme@themes/my_theme"
+    ...>
+</script>
+```
+
+## Database Migrations
+
 ```bash
 cd theme-designer-app/server
-DB_TYPE=mysql DB_HOST=localhost DB_USER=themedesigner DB_PASSWORD=... node migrate-data.js
+
+npm run db:migrate    # Run pending migrations
+npm run db:rollback   # Rollback last migration
+npm run db:status     # Show migration status
 ```
 
-### Additional (Optional)
+## Build
 
 ```bash
-PORT=3001                    # API server port (default: 3001)
-NODE_ENV=production          # Node environment (default: development)
-```
-
-**Note**: Without OAuth, themes can be created locally (User: 'anonymous').
-
-## Available npm Scripts
-
-| Script | Description |
-|--------|-------------|
-| `npm install` | Installs all dependencies (UI5 + Server) |
-| `npm run start:all` | ⭐ Starts backend + frontend simultaneously |
-| `npm run start:ui` | Starts only the UI5 app (port 8080) |
-| `npm run start:server` | Starts only the backend server (port 3001) |
-| `npm start` | Alias for `start:ui` |
-| `npm run build` | Builds the UI5 app |
-| `npm run lint` | Linter for code quality |
-| `npm test` | Runs tests |
-| `cd theme-designer-app/server && npm run db:migrate` | Run pending DB migrations |
-| `cd theme-designer-app/server && npm run db:rollback` | Rollback last migration |
-| `cd theme-designer-app/server && npm run db:status` | Show migration status |
-
-## Structure of Exported Theme
-
-```
-my_custom_theme.zip
-├── README.md
-└── my_custom_theme/
-    ├── library.css          # Compiled CSS
-    ├── library-RTL.css      # Right-to-Left CSS
-    ├── library-parameters.json  # Theme Parameters
-    └── .theming             # Theme Metadata
-```
-
-## Build the App
-
-### Unoptimized (but quick)
-
-Execute the following command to build the project and get an app that can be deployed:
-
-```sh
+# Standard build
 npm run build
-```
 
-The result is placed into the `dist` folder. To start the generated package, just run
-
-```sh
-npm run start:dist
-```
-
-Note that `index.html` still loads the UI5 framework from the relative URL `resources/...`, which does not physically exist, but is only provided dynamically by the UI5 tooling. So for an actual deployment you should change this URL to either [the CDN](https://sdk.openui5.org/#/topic/2d3eb2f322ea4a82983c1c62a33ec4ae) or your local deployment of UI5.
-
-(When using yarn, do `yarn build` and `yarn start:dist` instead.)
-
-### Optimized
-
-For an optimized self-contained build (takes longer because the UI5 resources are built, too), do:
-
-```sh
+# Optimized self-contained build (for Docker / production)
 npm run build:opt
 ```
 
-To start the generated package, again just run:
+Output goes to `dist/`. Start the built app:
 
-```sh
+```bash
 npm run start:dist
 ```
 
-In this case, all UI5 framework resources are also available within the `dist` folder, so the folder can be deployed as-is to any static web server, without changing the bootstrap URL.
+## Technology Stack
 
-With the self-contained build, the bootstrap URL in `index.html` has already been modified to load the newly created `sap-ui-custom.js` for bootstrapping, which contains all app resources as well as all needed UI5 JavaScript resources. Most UI5 resources inside the `dist` folder are for this reason actually **not** needed to run the app. Only the non-JS-files, like translation texts and CSS files, are used and must also be deployed. (Only when for some reason JS files are missing from the optimized self-contained bundle, they are also loaded separately.)
-
-(When using yarn, do `yarn build:opt` and `yarn start:dist` instead.)
-
-## Check the Code
-
-To lint the code, do:
-
-```sh
-npm run lint
-```
-
-(Again, when using yarn, do `yarn lint` instead.)
+- **Frontend**: OpenUI5 1.96.40 (JavaScript, XML Views)
+- **Backend**: Node.js, Express
+- **Authentication**: Passport.js + OpenID Connect (Keycloak)
+- **Database**: Knex.js + SQLite (default) or MySQL/MariaDB
+- **Theme Compiler**: less-openui5
+- **Preview**: Mustache-rendered HTML, CSS served via cache key
+- **Containerization**: Docker, nginx (frontend + proxy), multi-container via docker-compose
 
 ## License
 
-This project is licensed under the Apache Software License, version 2.0 except as noted otherwise in the [LICENSE](LICENSE) file.
+Apache Software License, Version 2.0 — see [LICENSE](LICENSE).

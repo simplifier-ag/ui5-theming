@@ -501,6 +501,7 @@ app.post('/api/import-theme', ensureAuthenticated, upload.single('themeZip'), as
 		let themeName = themeInfo.id;  // Technical name (directory name)
 		let themeLabel = themeInfo.label || themeInfo.id;  // Display name
 		const baseTheme = themeInfo.extends || 'sap_horizon';
+		const exportedBackgroundImage = themeInfo.backgroundImage || '';
 
 		console.log(`Found theme: ${themeName} (${themeLabel}), base: ${baseTheme}`);
 
@@ -569,9 +570,22 @@ app.post('/api/import-theme', ensureAuthenticated, upload.single('themeZip'), as
 			console.log(`Theme ID exists, using: ${themeName}`);
 		}
 
+		// Extract images from ZIP (only from sap.ui.core — same files are duplicated per library)
+		const imagePrefix = `UI5/sap/ui/core/themes/${themeId}/images/`;
+		const imageEntries = zipEntries.filter(e =>
+			e.entryName.startsWith(imagePrefix) && !e.isDirectory
+		);
+
 		// Create theme in database
 		const userId = getUserId(req);
 		const now = new Date().toISOString();
+
+		// Resolve backgroundImage: use exported value only if the image exists in the ZIP
+		const importedImageNames = imageEntries.map(e => path.basename(e.entryName));
+		const backgroundImage = exportedBackgroundImage && importedImageNames.includes(exportedBackgroundImage)
+			? exportedBackgroundImage
+			: '';
+
 		const result = await statements.createTheme.run({
 			themeId: themeName,
 			name: themeLabel,
@@ -581,6 +595,7 @@ app.post('/api/import-theme', ensureAuthenticated, upload.single('themeZip'), as
 			shellColor: shellColor,
 			ui5Version: ui5Version,
 			customCss: customCss,
+			backgroundImage,
 			description: `Imported from ${req.file.originalname}`,
 			userId,
 			createdAt: now,
@@ -588,6 +603,36 @@ app.post('/api/import-theme', ensureAuthenticated, upload.single('themeZip'), as
 		});
 
 		const newTheme = await statements.getThemeById.get(result.lastInsertRowid, userId);
+
+		// Save image files to SHARED_DIR and register them in theme_files
+		if (imageEntries.length > 0) {
+			const imagesDir = getThemeFilesDir(newTheme.id);
+			await fsPromises.mkdir(imagesDir, { recursive: true });
+
+			const MIME_BY_EXT = {
+				'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+				'.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp'
+			};
+
+			for (const entry of imageEntries) {
+				const filename = path.basename(entry.entryName);
+				const ext = path.extname(filename).toLowerCase();
+				const mimeType = MIME_BY_EXT[ext] || 'application/octet-stream';
+				const buffer = entry.getData();
+
+				await fsPromises.writeFile(path.join(imagesDir, filename), buffer);
+				await fileStatements.create.run({
+					themeId: newTheme.id,
+					type: 'image',
+					filename,
+					mimeType,
+					size: buffer.length,
+					createdAt: now
+				});
+			}
+			console.log(`Imported ${imageEntries.length} image(s) for theme ${newTheme.id}`);
+		}
+
 		console.log(`Theme imported successfully: ${themeName} (ID: ${newTheme.id})`);
 
 		res.json(newTheme);

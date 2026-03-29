@@ -413,6 +413,11 @@ app.post('/api/compile-theme', async (req, res) => {
 		const tempDir = path.join(__dirname, 'temp', themeId);
 		await fs.mkdir(tempDir, { recursive: true });
 
+		// metaDir holds root-level ZIP files (exportThemesInfo.json, README.md)
+		// kept separate from themeRootDir so archive.directory() doesn't duplicate them under UI5/
+		const metaDir = path.join(__dirname, 'temp', `${themeId}_meta`);
+		await fs.mkdir(metaDir, { recursive: true });
+
 		// Create theme root directory (without UI5 subfolder, we'll add it during archiving)
 		const themeRootDir = tempDir;  // Use tempDir directly
 		await fs.mkdir(themeRootDir, { recursive: true });
@@ -564,14 +569,15 @@ app.post('/api/compile-theme', async (req, res) => {
 						extends: baseTheme,
 						label: themeName,
 						vendor: "Custom",
-						textDirections: ["LTR", "RTL"]
+						textDirections: ["LTR", "RTL"],
+						backgroundImage: backgroundImage || ''
 					}
 				}
 			}
 		};
 
 		await fs.writeFile(
-			path.join(tempDir, 'exportThemesInfo.json'),
+			path.join(metaDir, 'exportThemesInfo.json'),
 			JSON.stringify(exportThemesInfo, null, 2)
 		);
 
@@ -610,7 +616,7 @@ ${description ? `\n## Description\n\n${description}\n` : ''}
 Generated with [OpenUI5 Theme Designer](https://github.com/simplifierag/theme-designer)
 `;
 
-		await fs.writeFile(path.join(tempDir, 'README.md'), readme);
+		await fs.writeFile(path.join(metaDir, 'README.md'), readme);
 
 		// Create ZIP archive
 		console.log('[Export] Creating ZIP archive...');
@@ -626,8 +632,8 @@ Generated with [OpenUI5 Theme Designer](https://github.com/simplifierag/theme-de
 		archive.pipe(res);
 
 		// Add README.md and exportThemesInfo.json to root of ZIP
-		archive.file(path.join(tempDir, 'README.md'), { name: 'README.md' });
-		archive.file(path.join(tempDir, 'exportThemesInfo.json'), { name: 'exportThemesInfo.json' });
+		archive.file(path.join(metaDir, 'README.md'), { name: 'README.md' });
+		archive.file(path.join(metaDir, 'exportThemesInfo.json'), { name: 'exportThemesInfo.json' });
 
 		// Add UI5 folder with all themes (this adds the UI5 prefix to the directory structure)
 		archive.directory(themeRootDir, 'UI5');
@@ -637,13 +643,14 @@ Generated with [OpenUI5 Theme Designer](https://github.com/simplifierag/theme-de
 
 		console.log('[Export] ZIP archive sent successfully');
 
-		// Cleanup temp directory after a delay
+		// Cleanup temp directories after a delay
 		setTimeout(async () => {
 			try {
 				await fs.rm(tempDir, { recursive: true, force: true });
-				console.log(`[Export] Cleaned up temp directory: ${tempDir}`);
+				await fs.rm(metaDir, { recursive: true, force: true });
+				console.log(`[Export] Cleaned up temp directories: ${tempDir}, ${metaDir}`);
 			} catch (error) {
-				console.error(`[Export] Failed to cleanup temp directory:`, error);
+				console.error(`[Export] Failed to cleanup temp directories:`, error);
 			}
 		}, 5000);
 
