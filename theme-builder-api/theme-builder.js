@@ -106,7 +106,10 @@ class ThemeBuilder {
 		for (const library of LIBRARIES) {
 			console.log(`Building library: ${library.name}`);
 			try {
-				results[library.name] = await this.buildLibrary(library, brandColor, focusColor, shellColor, customCss, baseTheme);
+				const libResult = await this.buildLibrary(library, brandColor, focusColor, shellColor, customCss, baseTheme);
+			if (libResult !== null) {
+				results[library.name] = libResult;
+			}
 			} catch (error) {
 				console.error(`Error building ${library.name}:`, error.message);
 				throw new Error(`Failed to build ${library.name}: ${error.message}`);
@@ -126,7 +129,8 @@ class ThemeBuilder {
 		try {
 			await fs.access(librarySourcePath);
 		} catch (error) {
-			throw new Error(`library.source.less not found at: ${librarySourcePath}`);
+			// Some libraries don't have all theme variants (e.g. sap.ui.ux3 has no sap_fiori_3_dark)
+			return null;
 		}
 
 		const tempDirBase = path.join(__dirname, 'temp');
@@ -198,7 +202,9 @@ ${colorOverrides}${customLessImport}
 		for (const library of LIBRARIES) {
 			try {
 				const result = await this.buildLibrary(library, brandColor, focusColor, shellColor, customCss, baseTheme, uniqueId);
-				libraryCss.set(library.name, this.fixFontPaths(result.css, library.name, baseTheme));
+				if (result !== null) {
+					libraryCss.set(library.name, this.fixFontPaths(result.css, library.name, baseTheme));
+				}
 			} catch (error) {
 				console.error(`Error building ${library.name} for preview:`, error.message);
 			}
