@@ -203,6 +203,50 @@
 							</VBox>
 						</Panel>
 
+						<!-- Fonts Panel -->
+						<Panel expandable="true" expanded="true" class="sapUiSmallMarginTop">
+							<headerToolbar>
+								<Toolbar>
+									<Title text="Fonts" level="H4" />
+								</Toolbar>
+							</headerToolbar>
+							<VBox class="sapUiSmallMargin">
+								<List
+									id="fontsList"
+									noDataText="No fonts uploaded yet"
+									items="{fontsModel>/fonts}">
+									<headerToolbar>
+										<Toolbar>
+											<Title text="Uploaded Fonts" level="H5" />
+											<ToolbarSpacer />
+											<Button
+												icon="sap-icon://upload"
+												type="Transparent"
+												tooltip="Upload font (.woff, .woff2, .ttf, .otf — max 10 MB)"
+												press="onUploadFont" />
+										</Toolbar>
+									</headerToolbar>
+									<CustomListItem>
+										<HBox justifyContent="SpaceBetween" alignItems="Center" width="100%"
+											  class="sapUiSmallMarginTopBottom">
+											<VBox class="sapUiSmallMarginBegin">
+												<Text text="{fontsModel>filename}" />
+												<ObjectStatus
+												text="{= 'font-family: &quot;' + ${fontsModel>fontFamily} + '&quot;'}"
+												state="Information"
+												class="sapUiTinyMarginTop" />
+											</VBox>
+											<Button
+												icon="sap-icon://delete"
+												type="Transparent"
+												tooltip="Delete font"
+												press="onDeleteFont" />
+										</HBox>
+									</CustomListItem>
+								</List>
+							</VBox>
+						</Panel>
+
 						<!-- Custom CSS Panel -->
 						<Panel expandable="true" expanded="false" class="sapUiSmallMarginTop">
 							<headerToolbar>

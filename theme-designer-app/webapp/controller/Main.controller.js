@@ -11,6 +11,8 @@ sap.ui.define([
 
 	return BaseController.extend("themedesigner.controller.Main", {
 
+
+		//todo images ins Theme Model verschieben
 		onInit: function () {
 			// Initialize empty theme model (will be loaded from DB)
 			var oThemeModel = new JSONModel({
@@ -31,6 +33,10 @@ sap.ui.define([
 			// Initialize images model
 			var oImagesModel = new JSONModel({ images: [] });
 			this.getView().setModel(oImagesModel, "imagesModel");
+
+			// Initialize fonts model
+			var oFontsModel = new JSONModel({ fonts: [] });
+			this.getView().setModel(oFontsModel, "fontsModel");
 
 			// Initialize debounce timer for preview updates
 			this._previewDebounceTimer = null;
@@ -81,10 +87,13 @@ sap.ui.define([
 						isModified: false
 					});
 
-						// Trigger initial preview
-					// Load images first so the Select has its options before
-					// selectedKey is applied — avoids "None" showing on first load
-					this._loadImages(oTheme.id).then(function () {
+						// Load images and fonts in parallel before triggering preview.
+					// Images must be loaded first so the background-image Select has
+					// its options before selectedKey is applied — avoids "None" on first load.
+					Promise.all([
+						this._loadImages(oTheme.id),
+						this._loadFonts(oTheme.id)
+					]).then(function () {
 						oModel.setProperty("/backgroundImage", oTheme.backgroundImage || "");
 						this._applyPreview();
 					}.bind(this));
@@ -286,6 +295,7 @@ sap.ui.define([
 				}.bind(this));
 		},
 
+		//todo onBackToOverview ?
 
 		_ensureHexColor: function (color) {
 			// If already hex format, return as-is
@@ -334,8 +344,7 @@ sap.ui.define([
 
 			// Pass files metadata (same shape as compile-theme payload) — the builder handles
 			// LESS var generation and url('images/X') rewriting in customCss.
-			// previewUrl is already stored on each image record by the server.
-			var aFiles = iDbId
+			var aImages = iDbId
 				? (this.getView().getModel("imagesModel").getProperty("/images") || []).map(function (img) {
 					return {
 						themeId: iDbId,
@@ -345,6 +354,17 @@ sap.ui.define([
 					};
 				})
 				: [];
+			var aFonts = iDbId
+				? (this.getView().getModel("fontsModel").getProperty("/fonts") || []).map(function (f) {
+					return {
+						themeId: iDbId,
+						type: 'font',
+						filename: f.filename,
+						mimeType: f.mimeType
+					};
+				})
+				: [];
+			var aFiles = aImages.concat(aFonts);
 
 			var oData = {
 				baseTheme: oModel.getProperty("/baseTheme"),
@@ -451,7 +471,7 @@ sap.ui.define([
 					const oImagesModel = this.getView().getModel("imagesModel");
 					oImagesModel.setProperty("/images", aImages);
 					const aOptions = [{ key: "", text: "– None –" }].concat(
-						aImages.map(function (img) { return { key: img.filename, text: img.filename }; })
+						aImages.map(function (img) { return { key: img.filename, text: img.filename }; })//todo change to binding
 					);
 					oImagesModel.setProperty("/selectOptions", aOptions);
 				}.bind(this))
@@ -478,6 +498,8 @@ sap.ui.define([
 			this._imageFileInput.value = "";
 			this._imageFileInput.click();
 		},
+
+		//todo fileupload ?
 
 		_onImageFileSelected: function (event) {
 			var file = event.target.files[0];
@@ -538,6 +560,84 @@ sap.ui.define([
 			}
 		},
 
+		_loadFonts: function (iDbId) {
+			return fetch("/api/themes/" + iDbId + "/fonts", { credentials: "include" })
+				.then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
+				.then(function (aFonts) {
+					var aFontsWithFamily = aFonts.map(function (f) {
+						var dotIdx = f.filename.lastIndexOf('.');
+						var fontFamily = dotIdx !== -1 ? f.filename.substring(0, dotIdx) : f.filename;
+						return Object.assign({}, f, { fontFamily: fontFamily });
+					});
+					this.getView().getModel("fontsModel").setProperty("/fonts", aFontsWithFamily);
+				}.bind(this))
+				.catch(function (e) { console.error("Failed to load fonts:", e); });
+		},
+
+		onUploadFont: function () {
+			if (!this._fontFileInput) {
+				this._fontFileInput = document.createElement("input");
+				this._fontFileInput.type = "file";
+				this._fontFileInput.accept = ".woff,.woff2,.ttf,.otf";
+				this._fontFileInput.style.display = "none";
+				document.body.appendChild(this._fontFileInput);
+				this._fontFileInput.addEventListener("change", this._onFontFileSelected.bind(this));
+			}
+			this._fontFileInput.value = "";
+			this._fontFileInput.click();
+		},
+
+		_onFontFileSelected: function (event) {
+			var file = event.target.files[0];
+			if (!file) return;
+			var iDbId = this.getView().getModel("themeModel").getProperty("/id");
+			var formData = new FormData();
+			formData.append("font", file);
+			this.getView().setBusy(true);
+			fetch("/api/themes/" + iDbId + "/fonts", {
+				method: "POST",
+				body: formData,
+				credentials: "include"
+			})
+				.then(function (r) {
+					return r.ok ? r.json() : r.json().then(function (e) { return Promise.reject(e); });
+				})
+				.then(function () {
+					this._loadFonts(iDbId).then(function () {
+						this._applyPreview();
+					}.bind(this));
+					MessageToast.show("Font uploaded successfully");
+				}.bind(this))
+				.catch(function (e) {
+					MessageBox.error("Upload failed: " + (e.error || e.message || "Unknown error"));
+				})
+				.finally(function () {
+					this.getView().setBusy(false);
+				}.bind(this));
+		},
+
+		onDeleteFont: function (oEvent) {
+			var oCtx = oEvent.getSource().getBindingContext("fontsModel");
+			var oFont = oCtx.getObject();
+			var iDbId = this.getView().getModel("themeModel").getProperty("/id");
+			MessageBox.confirm('Delete font "' + oFont.filename + '"?', {
+				title: "Delete Font",
+				onClose: function (sAction) {
+					if (sAction !== MessageBox.Action.OK) return;
+					fetch("/api/themes/" + iDbId + "/fonts/" + oFont.id, {
+						method: "DELETE",
+						credentials: "include"
+					})
+						.then(function (r) {
+							if (!r.ok) throw new Error("Delete failed");
+							return this._loadFonts(iDbId);
+						}.bind(this))
+						.then(function () { this._applyPreview(); }.bind(this))
+						.catch(function (e) { MessageBox.error(e.message); });
+				}.bind(this)
+			});
+		},
+
 		onExit: function () {
 			// Cleanup ColorPicker popovers
 			if (this.oBrandColorPicker) {
@@ -555,6 +655,10 @@ sap.ui.define([
 			if (this._imageFileInput) {
 				document.body.removeChild(this._imageFileInput);
 				this._imageFileInput = null;
+			}
+			if (this._fontFileInput) {
+				document.body.removeChild(this._fontFileInput);
+				this._fontFileInput = null;
 			}
 		},
 

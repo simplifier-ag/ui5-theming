@@ -79,6 +79,22 @@ function buildImageLessVars(images) {
 		.join('\n');
 }
 
+const FONT_FORMAT = { '.woff2': 'woff2', '.woff': 'woff', '.ttf': 'truetype', '.otf': 'opentype' };
+
+/**
+ * Builds a CSS @font-face block for each uploaded font.
+ * Font-family name = filename without extension (e.g. "my-brand-font.woff2" → "my-brand-font").
+ * URL uses relative path url('fonts/<filename>') — works from every library directory.
+ */
+function buildFontFaceCss(fontFiles) {
+	return fontFiles.map(f => {
+		const ext  = path.extname(f.filename).toLowerCase();
+		const fmt  = FONT_FORMAT[ext] || 'truetype';
+		const name = path.basename(f.filename, path.extname(f.filename));
+		return `@font-face {\n  font-family: "${name}";\n  src: url('fonts/${f.filename}') format('${fmt}');\n  font-weight: normal;\n  font-style: normal;\n}`;
+	}).join('\n');
+}
+
 function getCacheKey(params) {
 	return crypto
 		.createHash('sha256')
@@ -192,7 +208,12 @@ app.post('/api/preview-compile', async (req, res) => {
 		// Identical LESS var generation as in export — url('images/<filename>') relative paths.
 		// Images are served via preview-resources just like CSS and fonts.
 		const imageFiles = files.filter(f => f.type === 'image');
+		const fontFiles  = files.filter(f => f.type === 'font');
 		let effectiveCustomCss = customCss;
+		// @font-face (plain CSS) goes first, then image LESS vars, then user customCss
+		if (fontFiles.length > 0) {
+			effectiveCustomCss = buildFontFaceCss(fontFiles) + '\n' + effectiveCustomCss;
+		}
 		if (imageFiles.length > 0) {
 			effectiveCustomCss = buildImageLessVars(imageFiles) + '\n' + effectiveCustomCss;
 		}
@@ -219,6 +240,7 @@ app.post('/api/preview-compile', async (req, res) => {
 				libs,
 				params: compileParams,
 				files: imageFiles,   // cached so preview-resources can serve images
+				fontFiles,           // cached so preview-resources can serve uploaded fonts
 				expiresAt: Date.now() + CACHE_TTL_MS
 			});
 		} else {
@@ -318,10 +340,24 @@ app.get('/api/preview-resources/:cacheKey/*', async (req, res) => {
 		}
 	}
 
-	// Font files — serve directly from the @openui5 npm packages
+	// Font files — check uploaded fonts first, then fall back to @openui5 npm packages
 	const ext = path.extname(wildcardPath);
 	if (FONT_MIME_TYPES[ext]) {
 		const fontFileName = path.basename(wildcardPath);
+
+		// Uploaded fonts take priority over SAP system fonts
+		const uploadedFont = (entry.fontFiles || []).find(f => f.filename === fontFileName);
+		if (uploadedFont) {
+			const filePath = getSharedFilePath(uploadedFont.themeId, uploadedFont.filename);
+			try {
+				const data = await fs.readFile(filePath);
+				res.setHeader('Content-Type', FONT_MIME_TYPES[ext] || 'application/octet-stream');
+				return res.send(data);
+			} catch {
+				return res.status(404).send('/* Uploaded font not found on disk */');
+			}
+		}
+
 		// Try theme-specific fonts first (72-* fonts)
 		const fontsDir = themeBuilder.getFontsDir(entry.params.baseTheme, libraryName);
 		const fontPath = path.join(fontsDir, fontFileName);
@@ -366,9 +402,10 @@ app.post('/api/compile-theme', async (req, res) => {
 		const { themeId, themeName, baseTheme, brandColor, focusColor, shellColor, customCss, backgroundImage = '', description, files = [] } = req.body;
 
 		const imageFiles = files.filter(f => f.type === 'image');
+		const fontFiles  = files.filter(f => f.type === 'font');
 
 		console.log(`[Export] UI5 ${UI5_VERSION} - Theme: ${themeId} (${themeName})`);
-		console.log(`[Export] Base: ${baseTheme}, Brand: ${brandColor}, Files: ${files.length} (${imageFiles.length} images)`);
+		console.log(`[Export] Base: ${baseTheme}, Brand: ${brandColor}, Files: ${files.length} (${imageFiles.length} images, ${fontFiles.length} fonts)`);
 
 		// Validate input
 		if (!themeId || !themeName || !baseTheme || !brandColor) {
@@ -384,6 +421,10 @@ app.post('/api/compile-theme', async (req, res) => {
 		}
 
 		let effectiveCustomCss = customCss || '';
+		// @font-face (plain CSS) goes first, then image LESS vars, then user customCss
+		if (fontFiles.length > 0) {
+			effectiveCustomCss = buildFontFaceCss(fontFiles) + '\n' + effectiveCustomCss;
+		}
 		if (imageFiles.length > 0) {
 			effectiveCustomCss = buildImageLessVars(imageFiles) + '\n' + effectiveCustomCss;
 		}
@@ -535,6 +576,23 @@ app.post('/api/compile-theme', async (req, res) => {
 				}
 			}
 		}
+
+		// Copy uploaded fonts into every library's fonts/ folder.
+		// @font-face CSS is compiled into all libraries, so the font file must be
+		// resolvable from each library's CSS location — same pattern as images.
+		if (fontFiles.length > 0) {
+			const fontsTargetDir = path.join(libraryThemeDir, 'fonts');
+			await fs.mkdir(fontsTargetDir, { recursive: true });
+			for (const f of fontFiles) {
+				const srcPath = getSharedFilePath(f.themeId, f.filename);
+				try {
+					await fs.copyFile(srcPath, path.join(fontsTargetDir, f.filename));
+					console.log(`[Export]   Copied uploaded font: ${f.filename} → ${libraryName}`);
+				} catch (e) {
+					console.warn(`[Export]   Could not copy font ${f.filename} to ${libraryName}: ${e.message}`);
+				}
+			}
+		}
 	}
 
 		// Create exportThemesInfo.json
@@ -570,7 +628,8 @@ app.post('/api/compile-theme', async (req, res) => {
 						label: themeName,
 						vendor: "Custom",
 						textDirections: ["LTR", "RTL"],
-						backgroundImage: backgroundImage || ''
+						backgroundImage: backgroundImage || '',
+						customFonts: fontFiles.map(f => f.filename)
 					}
 				}
 			}
