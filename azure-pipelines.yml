@@ -28,86 +28,14 @@ variables:
     value: $[startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/')]
 
 stages:
-  - stage: DetectChanges
-    displayName: 'Detect Changed Paths'
-    jobs:
-      - job: DetectPaths
-        displayName: 'Detect which components changed'
-        steps:
-          - checkout: self
-            fetchDepth: 0  # Need full history for git diff
-
-          - bash: |
-              # Detect changes in last commit (for main/develop)
-              # or compare with target branch (for PRs)
-              # For manual builds, always build everything
-
-              if [ "$(Build.Reason)" = "Manual" ]; then
-                echo "Manual build - building all components"
-                APP_CHANGED=true
-                BUILDER_CHANGED=true
-              elif [ "$(Build.Reason)" = "PullRequest" ]; then
-                echo "PR Build - comparing with target branch"
-                git fetch origin $(System.PullRequest.TargetBranch)
-                BASE_REF="origin/$(System.PullRequest.TargetBranch)"
-
-                # Check for changes in each component
-                APP_CHANGED=false
-                BUILDER_CHANGED=false
-
-                if git diff --name-only $BASE_REF HEAD | grep -E '^theme-designer-app/'; then
-                  echo "Changes detected in theme-designer-app/"
-                  APP_CHANGED=true
-                fi
-
-                if git diff --name-only $BASE_REF HEAD | grep -E '^theme-builder-api/'; then
-                  echo "Changes detected in theme-builder-api/"
-                  BUILDER_CHANGED=true
-                fi
-              else
-                echo "Direct push - checking last commit"
-                BASE_REF="HEAD~1"
-
-                # Check for changes in each component
-                APP_CHANGED=false
-                BUILDER_CHANGED=false
-
-                if git diff --name-only $BASE_REF HEAD | grep -E '^theme-designer-app/'; then
-                  echo "Changes detected in theme-designer-app/"
-                  APP_CHANGED=true
-                fi
-
-                if git diff --name-only $BASE_REF HEAD | grep -E '^theme-builder-api/'; then
-                  echo "Changes detected in theme-builder-api/"
-                  BUILDER_CHANGED=true
-                fi
-              fi
-
-              # Set output variables
-              echo "##vso[task.setvariable variable=appChanged;isOutput=true]$APP_CHANGED"
-              echo "##vso[task.setvariable variable=builderChanged;isOutput=true]$BUILDER_CHANGED"
-
-              # Summary
-              echo "=== Change Detection Summary ==="
-              echo "App changed: $APP_CHANGED"
-              echo "Builder changed: $BUILDER_CHANGED"
-            displayName: 'Detect changed paths'
-            name: detectChanges
-
   - stage: Build
     displayName: 'Build and Push Docker Images'
-    dependsOn: DetectChanges
-    variables:
-      appChanged: $[ stageDependencies.DetectChanges.DetectPaths.outputs['detectChanges.appChanged'] ]
-      builderChanged: $[ stageDependencies.DetectChanges.DetectPaths.outputs['detectChanges.builderChanged'] ]
     jobs:
       # =========================================================================
       # Job 1: Build Theme Designer App
       # =========================================================================
       - job: BuildAppImage
         displayName: 'Build Theme Designer App'
-        # Only run if app files changed
-        condition: eq(variables.appChanged, 'true')
         steps:
           - checkout: self
             fetchDepth: 1
@@ -217,8 +145,6 @@ stages:
       # =========================================================================
       - job: BuildBuilderAPI
         displayName: 'Build Theme Builder API'
-        # Only run if builder files changed
-        condition: eq(variables.builderChanged, 'true')
         steps:
           - checkout: self
             fetchDepth: 1
