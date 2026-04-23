@@ -95,6 +95,65 @@ function buildFontFaceCss(fontFiles) {
 	}).join('\n');
 }
 
+/**
+ * Splits files by type and builds effectiveCustomCss + imageParams from them.
+ * Shared pre-processing step for both preview-compile and compile-theme.
+ */
+function prepareThemeParams({ customCss = '', backgroundImage = '', files = [] }) {
+	const imageFiles = files.filter(f => f.type === 'image');
+	const fontFiles  = files.filter(f => f.type === 'font');
+
+	let effectiveCustomCss = customCss;
+	if (fontFiles.length > 0)  effectiveCustomCss = buildFontFaceCss(fontFiles)   + '\n' + effectiveCustomCss;
+	if (imageFiles.length > 0) effectiveCustomCss = buildImageLessVars(imageFiles) + '\n' + effectiveCustomCss;
+	if (backgroundImage && imageFiles.some(f => f.filename === backgroundImage)) {
+		effectiveCustomCss += `\n.sapUiGlobalBackgroundImage {\n\tbackground-image: @${filenameToLessParam(backgroundImage)} !important;\n}`;
+	}
+
+	const imageParams = Object.fromEntries(
+		imageFiles.map(f => [filenameToLessParam(f.filename), `url('images/${f.filename}')`])
+	);
+
+	return { imageFiles, fontFiles, effectiveCustomCss, imageParams };
+}
+
+/**
+ * Validates and resolves all shared theme parameters from a request body.
+ * Throws an error with statusCode=400 on invalid input.
+ * Returns fully resolved params — identical shape for both preview and export.
+ */
+function resolveThemeParams(body) {
+	const {
+		baseTheme,
+		brandColor, focusColor, shellColor,
+		customCss = '', backgroundImage = '', files = []
+	} = body;
+
+	if (!VALID_BASE_THEMES.includes(baseTheme)) {
+		const err = new Error(`Invalid base theme. Must be one of: ${VALID_BASE_THEMES.join(', ')}`);
+		err.statusCode = 400;
+		throw err;
+	}
+
+	const defaults = getThemeDefaults(baseTheme);
+	const resolvedBrand = brandColor || defaults.brandColor;
+	const resolvedFocus = focusColor || defaults.focusColor;
+	const resolvedShell = shellColor || defaults.shellColor;
+
+	const { imageFiles, fontFiles, effectiveCustomCss, imageParams } = prepareThemeParams({ customCss, backgroundImage, files });
+
+	return {
+		baseTheme,
+		brandColor:  resolvedBrand,
+		focusColor:  resolvedFocus,
+		shellColor:  resolvedShell,
+		customCss,           // raw — export needs this for custom.less
+		effectiveCustomCss,
+		imageFiles, fontFiles, imageParams,
+		files                // kept for cache key
+	};
+}
+
 function getCacheKey(params) {
 	return crypto
 		.createHash('sha256')
@@ -106,7 +165,10 @@ function getCacheKey(params) {
 function evictExpiredCache() {
 	const now = Date.now();
 	for (const [key, entry] of previewCache) {
-		if (entry.expiresAt < now) previewCache.delete(key);
+		if (entry.expiresAt < now) {
+			previewCache.delete(key);
+			if (entry.dir) fs.rm(entry.dir, { recursive: true, force: true }).catch(() => {});
+		}
 	}
 }
 
@@ -192,6 +254,76 @@ app.get('/api/theme-defaults/:baseTheme', (req, res) => {
 
 
 /**
+ * Compiles a complete theme and writes all files (CSS, fonts, images) to outputDir.
+ * Shared by preview and export — identical output, caller decides what to do with it.
+ * Returns the raw themeResults (needed by export for exportThemesInfo.json).
+ */
+async function buildThemeToDir({ themeId, themeName, baseTheme, brandColor, focusColor, shellColor, effectiveCustomCss, description, imageFiles, fontFiles, imageParams }, outputDir) {
+	const themeResults = await themeBuilder.buildTheme({
+		themeName: themeId,
+		brandColor, focusColor, shellColor,
+		customCss: effectiveCustomCss,
+		baseTheme,
+		uniqueId: path.basename(outputDir)
+	});
+
+	for (const [libraryName, result] of Object.entries(themeResults)) {
+		const libraryThemeDir = path.join(outputDir, libraryName.replace(/\./g, '/'), 'themes', themeId);
+		await fs.mkdir(libraryThemeDir, { recursive: true });
+
+		await fs.writeFile(path.join(libraryThemeDir, 'library.css'),     themeBuilder.fixFontPaths(result.css,    libraryName, baseTheme));
+		await fs.writeFile(path.join(libraryThemeDir, 'library-RTL.css'), themeBuilder.fixFontPaths(result.cssRtl, libraryName, baseTheme));
+
+		await fs.writeFile(path.join(libraryThemeDir, '.theming'), JSON.stringify({
+			sEntity: "Theme", sId: themeId, sVendor: "Custom",
+			oExtends: baseTheme, sDescription: description || `Custom theme ${themeId}`,
+			sLabel: themeName || themeId, sVersion: UI5_VERSION
+		}, null, 2));
+
+		await fs.writeFile(path.join(libraryThemeDir, 'library-parameters.json'), JSON.stringify({
+			sapBrandColor: brandColor, sapContent_FocusColor: focusColor, sapShellColor: shellColor,
+			...imageParams
+		}, null, 2));
+
+		// SAP system fonts — only needed in sap.ui.core
+		if (libraryName === 'sap.ui.core') {
+			const targetFontsDir = path.join(libraryThemeDir, 'fonts');
+			await fs.mkdir(targetFontsDir, { recursive: true });
+			for (const [fontsDir, label] of [[themeBuilder.getFontsDir(baseTheme), 'theme'], [themeBuilder.getBaseFontsDir(), 'base']]) {
+				try {
+					for (const file of await fs.readdir(fontsDir)) {
+						const dest = path.join(targetFontsDir, file);
+						if (!fssync.existsSync(dest)) await fs.copyFile(path.join(fontsDir, file), dest);
+					}
+				} catch (e) { console.warn(`[Build] Could not copy ${label} fonts: ${e.message}`); }
+			}
+		}
+
+		// Uploaded images — every library needs them (CSS url('images/X') is in every library's CSS)
+		if (imageFiles.length > 0) {
+			const imagesDir = path.join(libraryThemeDir, 'images');
+			await fs.mkdir(imagesDir, { recursive: true });
+			for (const f of imageFiles) {
+				try { await fs.copyFile(getSharedFilePath(f.themeId, f.filename), path.join(imagesDir, f.filename)); }
+				catch (e) { console.warn(`[Build] Could not copy image ${f.filename}: ${e.message}`); }
+			}
+		}
+
+		// Uploaded fonts — every library needs them (same reason as images)
+		if (fontFiles.length > 0) {
+			const fontsDir = path.join(libraryThemeDir, 'fonts');
+			await fs.mkdir(fontsDir, { recursive: true });
+			for (const f of fontFiles) {
+				try { await fs.copyFile(getSharedFilePath(f.themeId, f.filename), path.join(fontsDir, f.filename)); }
+				catch (e) { console.warn(`[Build] Could not copy font ${f.filename}: ${e.message}`); }
+			}
+		}
+	}
+
+	return themeResults;
+}
+
+/**
  * POST /api/preview-compile - Compile theme and cache it. Returns a short cache key.
  *
  * The key is then used in GET /api/preview-page?key=... to load the preview iframe.
@@ -200,57 +332,37 @@ app.get('/api/theme-defaults/:baseTheme', (req, res) => {
  */
 app.post('/api/preview-compile', async (req, res) => {
 	try {
-		const { baseTheme = 'sap_fiori_3', brandColor, focusColor, shellColor, customCss = '', backgroundImage = '', version, files = [] } = req.body;
+		const { baseTheme, brandColor, focusColor, shellColor, effectiveCustomCss, imageFiles, fontFiles, imageParams, files } = resolveThemeParams(req.body);
 
-		const resolvedBaseTheme = VALID_BASE_THEMES.includes(baseTheme) ? baseTheme : 'sap_fiori_3';
-		const defaults = getThemeDefaults(resolvedBaseTheme);
-
-		// Identical LESS var generation as in export — url('images/<filename>') relative paths.
-		// Images are served via preview-resources just like CSS and fonts.
-		const imageFiles = files.filter(f => f.type === 'image');
-		const fontFiles  = files.filter(f => f.type === 'font');
-		let effectiveCustomCss = customCss;
-		// @font-face (plain CSS) goes first, then image LESS vars, then user customCss
-		if (fontFiles.length > 0) {
-			effectiveCustomCss = buildFontFaceCss(fontFiles) + '\n' + effectiveCustomCss;
-		}
-		if (imageFiles.length > 0) {
-			effectiveCustomCss = buildImageLessVars(imageFiles) + '\n' + effectiveCustomCss;
-		}
-		if (backgroundImage && imageFiles.some(f => f.filename === backgroundImage)) {
-			const paramName = filenameToLessParam(backgroundImage);
-			effectiveCustomCss += `\n.sapUiGlobalBackgroundImage {\n\tbackground-image: @${paramName} !important;\n}`;
-		}
-
-		const compileParams = {
-			baseTheme: resolvedBaseTheme,
-			brandColor: brandColor || defaults.brandColor,
-			focusColor: focusColor || defaults.focusColor,
-			shellColor: shellColor || defaults.shellColor,
-			customCss: effectiveCustomCss
-		};
-
-		const cacheKey = getCacheKey(compileParams);
+		// Include filenames in cache key so adding/removing a file invalidates the cache
+		const cacheKey = getCacheKey({
+			baseTheme, brandColor, focusColor, shellColor,
+			customCss: effectiveCustomCss,
+			fileKeys: files.map(f => f.filename).sort().join(',')
+		});
 
 		evictExpiredCache();
 		if (!previewCache.has(cacheKey)) {
-			console.log(`[Preview Compile] Compiling — base: ${resolvedBaseTheme}, brand: ${compileParams.brandColor} [key: ${cacheKey}]`);
-			const libs = await themeBuilder.compilePreviewLibraries(compileParams);
-			previewCache.set(cacheKey, {
-				libs,
-				params: compileParams,
-				files: imageFiles,   // cached so preview-resources can serve images
-				fontFiles,           // cached so preview-resources can serve uploaded fonts
-				expiresAt: Date.now() + CACHE_TTL_MS
-			});
+			console.log(`[Preview] Compiling — base: ${baseTheme}, brand: ${brandColor} [key: ${cacheKey}]`);
+			const tempDir = path.join(__dirname, 'temp', `preview_${cacheKey}`);
+			await fs.mkdir(tempDir, { recursive: true });
+
+			await buildThemeToDir({
+				themeId: 'preview_theme', themeName: 'Preview Theme',
+				baseTheme, brandColor, focusColor, shellColor,
+				effectiveCustomCss, description: '', imageFiles, fontFiles, imageParams
+			}, tempDir);
+
+			previewCache.set(cacheKey, { dir: tempDir, expiresAt: Date.now() + CACHE_TTL_MS });
 		} else {
-			console.log(`[Preview Compile] Cache hit [key: ${cacheKey}]`);
+			console.log(`[Preview] Cache hit [key: ${cacheKey}]`);
 		}
 
 		res.json({ key: cacheKey });
 
 	} catch (error) {
-		console.error('[Preview Compile] Error:', error);
+		if (error.statusCode === 400) return res.status(400).json({ error: error.message });
+		console.error('[Preview] Error:', error);
 		res.status(500).json({ error: error.message });
 	}
 });
@@ -282,104 +394,25 @@ app.get('/api/preview-page', (req, res) => {
 	res.send(html);
 });
 
-const FONT_MIME_TYPES = {
-	'.woff2': 'font/woff2',
-	'.woff': 'font/woff',
-	'.ttf': 'font/ttf',
-	'.eot': 'application/vnd.ms-fontobject',
-	'.otf': 'font/otf'
-};
-
 /**
- * GET /api/preview-resources/:cacheKey/* - Serve CSS, JSON params, and font files for UI5 theme-roots.
+ * GET /api/preview-resources/:cacheKey/* - Serve compiled theme files directly from the cached temp dir.
+ * All files (CSS, fonts, images, JSON) are already written to disk by buildThemeToDir — no special casing needed.
  */
-app.get('/api/preview-resources/:cacheKey/*', async (req, res) => {
-	const { cacheKey } = req.params;
-	const wildcardPath = req.params[0]; // e.g. "sap/ui/core/themes/preview_theme/library.css"
-
-	const entry = previewCache.get(cacheKey);
+app.get('/api/preview-resources/:cacheKey/*', (req, res) => {
+	const entry = previewCache.get(req.params.cacheKey);
 	if (!entry || entry.expiresAt < Date.now()) {
 		return res.status(404).send('/* Preview cache expired or not found */');
 	}
 
-	// Extract library name: "sap/m/themes/..." → "sap.m"
-	const themePos = wildcardPath.indexOf('/themes/');
-	if (themePos === -1) return res.status(404).send('/* Invalid path */');
-
-	const libraryName = wildcardPath.substring(0, themePos).replace(/\//g, '.');
-
-	// library-parameters.json — identical to export: colors + image params
-	if (wildcardPath.endsWith('/library-parameters.json')) {
-		const p = entry.params;
-		const imageParams = {};
-		for (const f of (entry.files || [])) {
-			imageParams[filenameToLessParam(f.filename)] = `url('images/${f.filename}')`;
-		}
-		res.setHeader('Content-Type', 'application/json');
-		return res.json({
-			sapBrandColor: p.brandColor,
-			sapContent_FocusColor: p.focusColor,
-			sapShellColor: p.shellColor,
-			...imageParams
-		});
+	const filePath = path.resolve(entry.dir, req.params[0]);
+	// Guard against path traversal
+	if (!filePath.startsWith(entry.dir + path.sep)) {
+		return res.status(400).send('/* Invalid path */');
 	}
 
-	// Image files — serve from shared volume (same files as in the export ZIP)
-	const imagesMatch = wildcardPath.match(/\/images\/([^/]+)$/);
-	if (imagesMatch) {
-		const filename = imagesMatch[1];
-		const fileEntry = (entry.files || []).find(f => f.filename === filename);
-		if (!fileEntry) return res.status(404).send('Image not found in cache');
-		const filePath = getSharedFilePath(fileEntry.themeId, filename);
-		try {
-			const data = await fs.readFile(filePath);
-			res.setHeader('Content-Type', fileEntry.mimeType || 'application/octet-stream');
-			return res.send(data);
-		} catch {
-			return res.status(404).send('Image file not found on disk');
-		}
-	}
-
-	// Font files — check uploaded fonts first, then fall back to @openui5 npm packages
-	const ext = path.extname(wildcardPath);
-	if (FONT_MIME_TYPES[ext]) {
-		const fontFileName = path.basename(wildcardPath);
-
-		// Uploaded fonts take priority over SAP system fonts
-		const uploadedFont = (entry.fontFiles || []).find(f => f.filename === fontFileName);
-		if (uploadedFont) {
-			const filePath = getSharedFilePath(uploadedFont.themeId, uploadedFont.filename);
-			try {
-				const data = await fs.readFile(filePath);
-				res.setHeader('Content-Type', FONT_MIME_TYPES[ext] || 'application/octet-stream');
-				return res.send(data);
-			} catch {
-				return res.status(404).send('/* Uploaded font not found on disk */');
-			}
-		}
-
-		// Try theme-specific fonts first (72-* fonts)
-		const fontsDir = themeBuilder.getFontsDir(entry.params.baseTheme, libraryName);
-		const fontPath = path.join(fontsDir, fontFileName);
-		if (fssync.existsSync(fontPath)) {
-			res.setHeader('Content-Type', FONT_MIME_TYPES[ext]);
-			return res.send(fssync.readFileSync(fontPath));
-		}
-		// Fall back to base fonts (SAP-icons lives under themes/base/fonts/)
-		const baseFontPath = path.join(themeBuilder.getBaseFontsDir(libraryName), fontFileName);
-		if (fssync.existsSync(baseFontPath)) {
-			res.setHeader('Content-Type', FONT_MIME_TYPES[ext]);
-			return res.send(fssync.readFileSync(baseFontPath));
-		}
-		return res.status(404).send('/* Font not found */');
-	}
-
-	// Default: compiled CSS
-	const css = entry.libs.get(libraryName);
-	if (!css) return res.status(404).send(`/* No CSS for library: ${libraryName} */`);
-
-	res.setHeader('Content-Type', 'text/css');
-	res.send(css);
+	res.sendFile(filePath, err => {
+		if (err && !res.headersSent) res.status(404).send('/* Not found */');
+	});
 });
 
 /**
@@ -399,201 +432,38 @@ app.get('/api/preview-resources/:cacheKey/*', async (req, res) => {
  */
 app.post('/api/compile-theme', async (req, res) => {
 	try {
-		const { themeId, themeName, baseTheme, brandColor, focusColor, shellColor, customCss, backgroundImage = '', description, files = [] } = req.body;
+		const { themeId, themeName, description } = req.body;
 
-		const imageFiles = files.filter(f => f.type === 'image');
-		const fontFiles  = files.filter(f => f.type === 'font');
-
-		console.log(`[Export] UI5 ${UI5_VERSION} - Theme: ${themeId} (${themeName})`);
-		console.log(`[Export] Base: ${baseTheme}, Brand: ${brandColor}, Files: ${files.length} (${imageFiles.length} images, ${fontFiles.length} fonts)`);
-
-		// Validate input
-		if (!themeId || !themeName || !baseTheme || !brandColor) {
-			return res.status(400).json({ error: 'Missing required parameters: themeId, themeName, baseTheme, brandColor' });
+		if (!themeId || !themeName) {
+			return res.status(400).json({ error: 'Missing required parameters: themeId, themeName' });
 		}
 
-		// Validate baseTheme
-		if (!baseTheme || !VALID_BASE_THEMES.includes(baseTheme)) {
-			return res.status(400).json({
-				error: 'Invalid base theme',
-				message: `Base theme must be one of: ${VALID_BASE_THEMES.join(', ')}`
-			});
-		}
+		const { baseTheme, brandColor, focusColor, shellColor, customCss, effectiveCustomCss, imageFiles, fontFiles, imageParams } = resolveThemeParams(req.body);
 
-		let effectiveCustomCss = customCss || '';
-		// @font-face (plain CSS) goes first, then image LESS vars, then user customCss
-		if (fontFiles.length > 0) {
-			effectiveCustomCss = buildFontFaceCss(fontFiles) + '\n' + effectiveCustomCss;
-		}
-		if (imageFiles.length > 0) {
-			effectiveCustomCss = buildImageLessVars(imageFiles) + '\n' + effectiveCustomCss;
-		}
-		if (backgroundImage && imageFiles.some(f => f.filename === backgroundImage)) {
-			const paramName = filenameToLessParam(backgroundImage);
-			effectiveCustomCss += `\n.sapUiGlobalBackgroundImage {\n\tbackground-image: @${paramName} !important;\n}`;
-		}
+		console.log(`[Export] UI5 ${UI5_VERSION} - Theme: ${themeId} (${themeName}), base: ${baseTheme}, brand: ${brandColor}, files: ${imageFiles.length} images / ${fontFiles.length} fonts`);
 
-		// Build image parameters map for library-parameters.json
-		const imageParams = {};
-		for (const f of imageFiles) {
-			imageParams[filenameToLessParam(f.filename)] = `url('images/${f.filename}')`;
-		}
-
-		// Build complete theme using ThemeBuilder
-		console.log('[Export] Building theme with ThemeBuilder...');
-		const themeResults = await themeBuilder.buildTheme({
-			themeName: themeId,  // Use themeId as technical directory name
-			brandColor,
-			focusColor,
-			shellColor,
-			customCss: effectiveCustomCss,
-			baseTheme
-		});
-
-		// Create temporary directory for theme generation
+		// Create temporary directories
 		const tempDir = path.join(__dirname, 'temp', themeId);
-		await fs.mkdir(tempDir, { recursive: true });
-
-		// metaDir holds root-level ZIP files (exportThemesInfo.json, README.md)
-		// kept separate from themeRootDir so archive.directory() doesn't duplicate them under UI5/
 		const metaDir = path.join(__dirname, 'temp', `${themeId}_meta`);
+		await fs.mkdir(tempDir, { recursive: true });
 		await fs.mkdir(metaDir, { recursive: true });
 
-		// Create theme root directory (without UI5 subfolder, we'll add it during archiving)
-		const themeRootDir = tempDir;  // Use tempDir directly
-		await fs.mkdir(themeRootDir, { recursive: true });
+		// Build theme and write all files to tempDir (same code path as preview)
+		console.log('[Export] Building theme...');
+		const themeResults = await buildThemeToDir({
+			themeId, themeName, baseTheme,
+			brandColor, focusColor, shellColor,
+			effectiveCustomCss, description, imageFiles, fontFiles, imageParams
+		}, tempDir);
 
-		// Create library directories and write CSS files
-		for (const [libraryName, result] of Object.entries(themeResults)) {
-			console.log(`[Export] Writing ${libraryName} CSS files...`);
-
-			// Create library path (e.g., UI5/sap/m/themes/my_theme/)
-			const libraryPath = libraryName.replace(/\./g, '/');
-			const libraryThemeDir = path.join(themeRootDir, libraryPath, 'themes', themeId);
-			await fs.mkdir(libraryThemeDir, { recursive: true });
-
-			const fixedCss = themeBuilder.fixFontPaths(result.css, libraryName, baseTheme);
-			const fixedCssRtl = themeBuilder.fixFontPaths(result.cssRtl, libraryName, baseTheme);
-
-			// Write CSS files with fixed font paths
-			await fs.writeFile(path.join(libraryThemeDir, 'library.css'), fixedCss);
-			await fs.writeFile(path.join(libraryThemeDir, 'library-RTL.css'), fixedCssRtl);
-
-			// Create .theming file (metadata for UI5)
-			const themingMetadata = JSON.stringify({
-				sEntity: "Theme",
-				sId: themeId,
-				sVendor: "Custom",
-				oExtends: baseTheme,
-				sDescription: description || `Custom theme ${themeId}`,
-				sLabel: themeName,
-				sVersion: UI5_VERSION  // Use UI5_VERSION from environment
-			}, null, 2);
-			await fs.writeFile(path.join(libraryThemeDir, '.theming'), themingMetadata);
-
-			// Create library-parameters.json (theme parameters incl. image params)
-			const parameters = {
-				sapBrandColor: brandColor,
-				sapContent_FocusColor: focusColor,
-				sapShellColor: shellColor,
-				...imageParams   // e.g. themeImageLogo: "url('images/logo.png')"
-			};
+		// Write custom.less into sap.ui.core for SAP Theme Designer re-import compatibility
+		if (customCss && customCss.trim() !== '' && customCss.trim() !== '/* Add your custom CSS here */') {
+			const coreThemeDir = path.join(tempDir, 'sap', 'ui', 'core', 'themes', themeId);
 			await fs.writeFile(
-				path.join(libraryThemeDir, 'library-parameters.json'),
-				JSON.stringify(parameters, null, 2)
-			);
-
-			// Copy custom.less file from theme-builder temp directory for sap.ui.core
-			if (libraryName === 'sap.ui.core' && customCss && customCss.trim() !== '' && customCss.trim() !== '/* Add your custom CSS here */') {
-				const sourceCustomLess = path.join(__dirname, 'temp', 'custom.less');
-				try {
-					// Check if custom.less was created by theme-builder
-					await fs.access(sourceCustomLess);
-
-					// Create custom.less with only the user's custom CSS
-					// Note: We don't include Base imports because we don't export the Base directory
-					const customLessContent = `/*<SAP_FREETEXT_LESS>*/${customCss}/*</SAP_FREETEXT_LESS>*/`;
-
-					await fs.writeFile(
-						path.join(libraryThemeDir, 'custom.less'),
-						customLessContent
-					);
-					console.log('[Export]   Created custom.less with custom CSS');
-				} catch (error) {
-					console.warn('[Export]   custom.less not found in theme-builder temp, skipping');
-				}
-			}
-
-			// Copy font files for sap.ui.core library
-			if (libraryName === 'sap.ui.core') {
-				console.log('[Export] Copying font files from base theme...');
-				const targetFontsDir = path.join(libraryThemeDir, 'fonts');
-				await fs.mkdir(targetFontsDir, { recursive: true });
-
-				// Copy theme-specific fonts (72-*)
-				const themeFontsDir = themeBuilder.getFontsDir(baseTheme);
-				try {
-					await fs.access(themeFontsDir);
-					const fontFiles = await fs.readdir(themeFontsDir);
-					for (const fontFile of fontFiles) {
-						await fs.copyFile(path.join(themeFontsDir, fontFile), path.join(targetFontsDir, fontFile));
-						console.log(`[Export]   Copied font: ${fontFile}`);
-					}
-				} catch (error) {
-					console.warn(`[Export] Warning: Could not copy theme fonts from ${themeFontsDir}:`, error.message);
-				}
-
-				// Copy base fonts (SAP-icons and other icon fonts live under themes/base/fonts/)
-				const baseFontsDir = themeBuilder.getBaseFontsDir();
-				try {
-					await fs.access(baseFontsDir);
-					const fontFiles = await fs.readdir(baseFontsDir);
-					for (const fontFile of fontFiles) {
-						const targetPath = path.join(targetFontsDir, fontFile);
-						if (!fssync.existsSync(targetPath)) {
-							await fs.copyFile(path.join(baseFontsDir, fontFile), targetPath);
-							console.log(`[Export]   Copied base font: ${fontFile}`);
-						}
-					}
-				} catch (error) {
-					console.warn(`[Export] Warning: Could not copy base fonts from ${baseFontsDir}:`, error.message);
-				}
-
-			}
-
-		// Copy uploaded images into every library's images/ folder.
-		// Custom CSS with url('images/X') is compiled into all libraries, so the image
-		// must be resolvable from each library's CSS location — not just sap.ui.core.
-		if (imageFiles.length > 0) {
-			const imagesTargetDir = path.join(libraryThemeDir, 'images');
-			await fs.mkdir(imagesTargetDir, { recursive: true });
-			for (const f of imageFiles) {
-				const srcPath = getSharedFilePath(f.themeId, f.filename);
-				try {
-					await fs.copyFile(srcPath, path.join(imagesTargetDir, f.filename));
-				} catch (e) {
-					console.warn(`[Export]   Could not copy image ${f.filename} to ${libraryName}: ${e.message}`);
-				}
-			}
+				path.join(coreThemeDir, 'custom.less'),
+				`/*<SAP_FREETEXT_LESS>*/${customCss}/*</SAP_FREETEXT_LESS>*/`
+			).catch(e => console.warn('[Export] Could not write custom.less:', e.message));
 		}
-
-		// Copy uploaded fonts into every library's fonts/ folder.
-		// @font-face CSS is compiled into all libraries, so the font file must be
-		// resolvable from each library's CSS location — same pattern as images.
-		if (fontFiles.length > 0) {
-			const fontsTargetDir = path.join(libraryThemeDir, 'fonts');
-			await fs.mkdir(fontsTargetDir, { recursive: true });
-			for (const f of fontFiles) {
-				const srcPath = getSharedFilePath(f.themeId, f.filename);
-				try {
-					await fs.copyFile(srcPath, path.join(fontsTargetDir, f.filename));
-					console.log(`[Export]   Copied uploaded font: ${f.filename} → ${libraryName}`);
-				} catch (e) {
-					console.warn(`[Export]   Could not copy font ${f.filename} to ${libraryName}: ${e.message}`);
-				}
-			}
-		}
-	}
 
 		// Create exportThemesInfo.json
 		const libraryList = Object.keys(themeResults).reduce((acc, libName) => {
@@ -628,7 +498,7 @@ app.post('/api/compile-theme', async (req, res) => {
 						label: themeName,
 						vendor: "Custom",
 						textDirections: ["LTR", "RTL"],
-						backgroundImage: backgroundImage || '',
+						backgroundImage: req.body.backgroundImage || '',
 						customFonts: fontFiles.map(f => f.filename)
 					}
 				}
@@ -695,7 +565,7 @@ Generated with [OpenUI5 Theme Designer](https://github.com/simplifierag/theme-de
 		archive.file(path.join(metaDir, 'exportThemesInfo.json'), { name: 'exportThemesInfo.json' });
 
 		// Add UI5 folder with all themes (this adds the UI5 prefix to the directory structure)
-		archive.directory(themeRootDir, 'UI5');
+		archive.directory(tempDir, 'UI5');
 
 		// Finalize archive
 		await archive.finalize();
@@ -714,6 +584,7 @@ Generated with [OpenUI5 Theme Designer](https://github.com/simplifierag/theme-de
 		}, 5000);
 
 	} catch (error) {
+		if (error.statusCode === 400) return res.status(400).json({ error: error.message });
 		console.error('[Export] Compilation error:', error);
 		res.status(500).json({
 			error: 'Failed to compile theme',

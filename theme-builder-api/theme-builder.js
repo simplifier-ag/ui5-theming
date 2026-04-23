@@ -97,7 +97,7 @@ class ThemeBuilder {
 	 * Build a complete UI5 theme with custom colors — returns raw results per library.
 	 */
 	async buildTheme(options) {
-		const { themeName, brandColor, focusColor, shellColor, customCss = '', baseTheme = 'sap_horizon' } = options;
+		const { themeName, brandColor, focusColor, shellColor, customCss = '', baseTheme = 'sap_horizon', uniqueId = null } = options;
 
 		console.log(`Building theme: ${themeName}`);
 		console.log(`Brand color: ${brandColor}, Focus color: ${focusColor}, Shell color: ${shellColor}`);
@@ -106,10 +106,10 @@ class ThemeBuilder {
 		for (const library of LIBRARIES) {
 			console.log(`Building library: ${library.name}`);
 			try {
-				const libResult = await this.buildLibrary(library, brandColor, focusColor, shellColor, customCss, baseTheme);
-			if (libResult !== null) {
-				results[library.name] = libResult;
-			}
+				const libResult = await this.buildLibrary(library, brandColor, focusColor, shellColor, customCss, baseTheme, uniqueId);
+				if (libResult !== null) {
+					results[library.name] = libResult;
+				}
 			} catch (error) {
 				console.error(`Error building ${library.name}:`, error.message);
 				throw new Error(`Failed to build ${library.name}: ${error.message}`);
@@ -186,35 +186,6 @@ ${colorOverrides}${customLessImport}
 		}
 
 		return { css: result.css, cssRtl: result.cssRtl, variables: result.variables || {} };
-	}
-
-	/**
-	 * Compile theme for preview — returns a Map of libraryName → CSS (with fixed font paths).
-	 */
-	async compilePreviewLibraries(options) {
-		const { brandColor, focusColor, shellColor, customCss = '', baseTheme = 'sap_horizon' } = options;
-
-		console.log(`Compiling preview libraries — base: ${baseTheme}, brand: ${brandColor}`);
-
-		const uniqueId = `preview_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-		const libraryCss = new Map();
-
-		for (const library of LIBRARIES) {
-			try {
-				const result = await this.buildLibrary(library, brandColor, focusColor, shellColor, customCss, baseTheme, uniqueId);
-				if (result !== null) {
-					libraryCss.set(library.name, this.fixFontPaths(result.css, library.name, baseTheme));
-				}
-			} catch (error) {
-				console.error(`Error building ${library.name} for preview:`, error.message);
-			}
-		}
-
-		try {
-			fssync.rmSync(path.join(__dirname, 'temp', uniqueId), { recursive: true, force: true });
-		} catch (e) { /* ignore */ }
-
-		return libraryCss;
 	}
 
 	/**

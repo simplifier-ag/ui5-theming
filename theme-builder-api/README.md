@@ -28,29 +28,28 @@ This generates `package.json` from `package.template.json` for the specified ver
 npm start
 ```
 
-Runs on port 3001 by default (configurable via `PORT`).
+Runs on port 3000 by default (configurable via `PORT`).
 
 ### 3. Test
 
 ```bash
 # Health check
-curl http://localhost:3001/health
+curl http://localhost:3000/health
 
 # Compile preview
-curl -X POST http://localhost:3001/api/preview-compile \
+curl -X POST http://localhost:3000/api/preview-compile \
   -H "Content-Type: application/json" \
   -d '{
     "baseTheme": "sap_horizon",
     "brandColor": "#ff6600",
     "focusColor": "#cc5200",
     "shellColor": "#ffffff",
-    "customCss": "",
-    "themeId": "1"
+    "customCss": ""
   }'
 # → { "key": "abc123..." }
 
 # Download compiled CSS for a library
-curl "http://localhost:3001/api/preview-resources/abc123.../sap/ui/core/themes/my_theme/library.css"
+curl "http://localhost:3000/api/preview-resources/abc123.../sap/ui/core/themes/preview_theme/library.css"
 ```
 
 ## API Endpoints
@@ -75,9 +74,12 @@ Compiles theme for all 16 libraries, caches result (30 min TTL, keyed by SHA256 
   "focusColor": "#0032a5",
   "shellColor": "#ffffff",
   "customCss": "",
-  "themeId": "42"
+  "backgroundImage": "",
+  "files": []
 }
 ```
+
+All color fields are optional — they fall back to theme defaults if omitted.
 
 **Response:**
 ```json
@@ -117,10 +119,13 @@ Compiles the complete theme (16 libraries) and returns a ZIP file.
   "focusColor": "#0032a5",
   "shellColor": "#ffffff",
   "customCss": "",
+  "backgroundImage": "",
   "description": "Optional description",
-  "dbThemeId": "42"
+  "files": []
 }
 ```
+
+`themeId` and `themeName` are required. All color fields are optional — they fall back to theme defaults if omitted.
 
 **Response:** ZIP file (`application/zip`)
 
@@ -172,7 +177,7 @@ In `docker-compose.yml`, each version runs as a separate service (`theme-builder
 | File | Description |
 |------|-------------|
 | `server.js` | Express API server |
-| `theme-builder.js` | LESS compilation logic (`buildTheme`, `compilePreviewLibraries`, `buildLibrary`) |
+| `theme-builder.js` | LESS compilation logic (`buildTheme`, `buildLibrary`, font path helpers) |
 | `package.template.json` | Template for version-specific `package.json` |
 | `package.json` | Generated from template (not in git) |
 | `Dockerfile` | Multi-version Docker image |
