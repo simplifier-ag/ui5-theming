@@ -27,7 +27,8 @@ sap.ui.define([
 				description: "",
 				isModified: false,
 				files: [],
-				imageSelectOptions: []
+				imageSelectOptions: [],
+				rtlEnabled: false
 			});
 			this.getView().setModel(oThemeModel, "themeModel");
 
@@ -362,7 +363,8 @@ sap.ui.define([
 					oIframe.onload = function () {
 						this.byId("previewContainer").setBusy(false);
 					}.bind(this);
-					oIframe.src = "/api/preview-page?key=" + oResult.key + "&version=" + oData.version;
+					var sRtl = oModel.getProperty("/rtlEnabled") ? "&sap-ui-rtl=true" : "";
+					oIframe.src = "/api/preview-page?key=" + oResult.key + "&version=" + oData.version + sRtl;
 				} else {
 					this.byId("previewContainer").setBusy(false);
 				}
@@ -370,6 +372,10 @@ sap.ui.define([
 			.catch(function () {
 				this.byId("previewContainer").setBusy(false);
 			}.bind(this));
+		},
+
+		onRtlToggle: function () {
+			this._doApplyPreview();
 		},
 
 		onExport: function () {

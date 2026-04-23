@@ -42,7 +42,15 @@
 		<f:content>
 			<l:Splitter height="100%">
 				<!-- Preview Panel (Left Side) -->
-				<Panel headerText="Preview" expandable="false" height="100%">
+				<Panel expandable="false" height="100%">
+					<headerToolbar>
+						<Toolbar>
+							<Title text="Preview" />
+							<ToolbarSpacer />
+							<Label text="RTL" />
+							<Switch state="{themeModel>/rtlEnabled}" change="onRtlToggle" />
+						</Toolbar>
+					</headerToolbar>
 					<layoutData>
 						<l:SplitterLayoutData size="auto" />
 					</layoutData>
