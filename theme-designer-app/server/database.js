@@ -69,9 +69,9 @@ async function initialize() {
  * separate without requiring separate tables.
  */
 const fileStatements = {
-    getByThemeAndType: {
-        all: (themeId, type) =>
-            knex('theme_files').where({ themeId, type }).orderBy('createdAt', 'asc')
+    getByTheme: {
+        all: (themeId) =>
+            knex('theme_files').where({ themeId }).orderBy('createdAt', 'asc')
     },
 
     getById: {

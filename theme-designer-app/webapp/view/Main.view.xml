@@ -8,7 +8,8 @@
 	xmlns:f="sap.f"
 	xmlns:core="sap.ui.core"
 	xmlns:custom="themedesigner.control"
-	xmlns:editor="sap.ui.codeeditor">
+	xmlns:editor="sap.ui.codeeditor"
+	xmlns:unified="sap.ui.unified">
 
 	<f:DynamicPage
 		id="dynamicPageId"
@@ -156,32 +157,34 @@
 									class="sapUiTinyMarginBottom"
 									selectedKey="{themeModel>/backgroundImage}"
 									change="onBackgroundImageChange"
-									items="{path: 'imagesModel>/selectOptions', templateShareable: false}">
-									<core:Item key="{imagesModel>key}" text="{imagesModel>text}" />
+									items="{path: 'themeModel>/imageSelectOptions', templateShareable: false}">
+									<core:Item key="{themeModel>key}" text="{themeModel>text}" />
 								</Select>
 
 								<List
 									id="imagesList"
 									noDataText="No images uploaded yet"
-									items="{imagesModel>/images}">
+									items="{path: 'themeModel>/files', filters: {path: 'type', operator: 'EQ', value1: 'image'}, templateShareable: false}">
 									<headerToolbar>
 										<Toolbar>
 											<Title text="Uploaded Images" level="H5" />
 											<ToolbarSpacer />
-											<Button
+											<unified:FileUploader
+												buttonOnly="true"
+												iconOnly="true"
 												icon="sap-icon://upload"
-												type="Transparent"
 												tooltip="Upload image (max 5 MB)"
-												press="onUploadImage" />
+												mimeType="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+												change="onUploadImage" />
 										</Toolbar>
 									</headerToolbar>
 									<CustomListItem>
 										<HBox justifyContent="SpaceBetween" alignItems="Center" width="100%"
 											  class="sapUiSmallMarginTopBottom">
 											<VBox class="sapUiSmallMarginBegin">
-												<Text text="{imagesModel>filename}" />
+												<Text text="{themeModel>filename}" />
 												<ObjectStatus
-													text="{= '@' + ${imagesModel>lessParam}}"
+													text="{path: 'themeModel>filename', formatter: '.formatLessParam'}"
 													state="Information"
 													class="sapUiTinyMarginTop" />
 											</VBox>
@@ -195,7 +198,7 @@
 													icon="sap-icon://delete"
 													type="Transparent"
 													tooltip="Delete image"
-													press="onDeleteImage" />
+													press="onDeleteFile" />
 											</HBox>
 										</HBox>
 									</CustomListItem>
@@ -214,25 +217,27 @@
 								<List
 									id="fontsList"
 									noDataText="No fonts uploaded yet"
-									items="{fontsModel>/fonts}">
+									items="{path: 'themeModel>/files', filters: {path: 'type', operator: 'EQ', value1: 'font'}, templateShareable: false}">
 									<headerToolbar>
 										<Toolbar>
 											<Title text="Uploaded Fonts" level="H5" />
 											<ToolbarSpacer />
-											<Button
+											<unified:FileUploader
+												buttonOnly="true"
+												iconOnly="true"
 												icon="sap-icon://upload"
-												type="Transparent"
 												tooltip="Upload font (.woff, .woff2, .ttf, .otf — max 10 MB)"
-												press="onUploadFont" />
+												fileType="woff,woff2,ttf,otf"
+												change="onUploadFont" />
 										</Toolbar>
 									</headerToolbar>
 									<CustomListItem>
 										<HBox justifyContent="SpaceBetween" alignItems="Center" width="100%"
 											  class="sapUiSmallMarginTopBottom">
 											<VBox class="sapUiSmallMarginBegin">
-												<Text text="{fontsModel>filename}" />
+												<Text text="{themeModel>filename}" />
 												<ObjectStatus
-												text="{= 'font-family: &quot;' + ${fontsModel>fontFamily} + '&quot;'}"
+												text="{path: 'themeModel>filename', formatter: '.formatFontFamily'}"
 												state="Information"
 												class="sapUiTinyMarginTop" />
 											</VBox>
@@ -240,7 +245,7 @@
 												icon="sap-icon://delete"
 												type="Transparent"
 												tooltip="Delete font"
-												press="onDeleteFont" />
+												press="onDeleteFile" />
 										</HBox>
 									</CustomListItem>
 								</List>

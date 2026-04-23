@@ -25,16 +25,6 @@ function getThemeFilesDir(themeDbId) {
     return path.join(SHARED_DIR, 'files', String(themeDbId));
 }
 
-// Converts an image filename to its LESS parameter name — for display in the image list API.
-// NOTE: Must stay in sync with filenameToLessParam() in theme-builder-api/server.js
-// (the builder uses it for actual LESS compilation and library-parameters.json generation).
-function filenameToLessParam(filename) {
-    const base = path.basename(filename, path.extname(filename));
-    const words = base.split(/[-_\s]+/).filter(Boolean);
-    const pascal = words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
-    return 'themeImage' + pascal;
-}
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -45,35 +35,8 @@ const builderRouter = new BuilderRouter();
 // This enables Express to trust X-Forwarded-* headers
 app.set('trust proxy', 1);
 
-// Configure multer for file uploads (memory storage)
-const upload = multer({ storage: multer.memoryStorage() });
-
-// Separate multer instance for image uploads: image/* only, 5 MB limit
-const imageUpload = multer({
-    storage: multer.memoryStorage(),
-    limits: { fileSize: 5 * 1024 * 1024 },
-    fileFilter: (req, file, cb) => {
-        if (file.mimetype.startsWith('image/')) {
-            cb(null, true);
-        } else {
-            cb(new Error('Only image files are allowed'));
-        }
-    }
-});
-
-// Separate multer instance for font uploads: font files only, 10 MB limit
-const FONT_EXTENSIONS = new Set(['.woff', '.woff2', '.ttf', '.otf']);
-const fontUpload = multer({
-    storage: multer.memoryStorage(),
-    limits: { fileSize: 10 * 1024 * 1024 },
-    fileFilter: (req, file, cb) => {
-        const ext = path.extname(file.originalname).toLowerCase();
-        // Accept font/ MIME types, application/font-*, application/x-font-*, and
-        // application/octet-stream (some browsers send this for woff2) — validated by ext too.
-        const mimeOk = /^(font\/|application\/font|application\/x-font|application\/octet-stream)/.test(file.mimetype);
-        cb(null, mimeOk || FONT_EXTENSIONS.has(ext));
-    }
-});
+const zipUpload = multer({ storage: multer.memoryStorage() });
+const fileUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 // Keycloak OAuth Configuration
 const KEYCLOAK_URL = process.env.KEYCLOAK_URL || '';
@@ -455,20 +418,7 @@ app.delete('/api/themes/:id', ensureAuthenticated, async (req, res) => {
 			return res.status(404).json({ error: 'Theme not found' });
 		}
 
-		//todo: checken
-		// Delete all theme files (filesystem + DB rows) before removing the theme
-		const themeImages = await fileStatements.getByThemeAndType.all(existingTheme.id, 'image');
-		for (const f of themeImages) {
-			try {
-				await fsPromises.unlink(path.join(getThemeFilesDir(existingTheme.id), f.filename));
-			} catch (e) {
-				if (e.code !== 'ENOENT') throw e;
-			}
-		}
-		// Remove the entire files directory for this theme
-		try {
-			await fsPromises.rm(path.join(SHARED_DIR, 'files', String(existingTheme.id)), { recursive: true, force: true });
-		} catch {}
+		await fsPromises.rm(path.join(SHARED_DIR, 'files', String(existingTheme.id)), { recursive: true, force: true });
 		await fileStatements.deleteByTheme.run(existingTheme.id);
 
 		await statements.deleteTheme.run(themeId, userId);
@@ -480,7 +430,7 @@ app.delete('/api/themes/:id', ensureAuthenticated, async (req, res) => {
 });
 
 // POST /api/import-theme - Import theme from ZIP file
-app.post('/api/import-theme', ensureAuthenticated, upload.single('themeZip'), async (req, res) => {
+app.post('/api/import-theme', ensureAuthenticated, zipUpload.single('themeZip'), async (req, res) => {
 	try {
 		if (!req.file) {
 			return res.status(400).json({ error: 'No file uploaded' });
@@ -755,33 +705,16 @@ app.get('/api/preview-resources/:cacheKey/*', async (req, res) => {
 // Theme Files API (Images, future: Fonts)
 // ========================================
 
-// GET /api/themes/:id/images — list images for a theme
-app.get('/api/themes/:id/images', ensureAuthenticated, async (req, res) => {
+// POST /api/themes/:id/files?type=... — upload a file; type is stored as-is, no validation
+app.post('/api/themes/:id/files', ensureAuthenticated, fileUpload.single('file'), async (req, res) => {
     try {
-        const userId = getUserId(req);
-        const theme = await statements.getThemeById.get(req.params.id, userId);
-        if (!theme) return res.status(404).json({ error: 'Theme not found' });
-
-        const images = await fileStatements.getByThemeAndType.all(theme.id, 'image');
-        res.json(images.map(img => ({
-            ...img,
-            lessParam: filenameToLessParam(img.filename)
-        })));
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch images', details: error.message });
-    }
-});
-
-// POST /api/themes/:id/images — upload an image
-app.post('/api/themes/:id/images', ensureAuthenticated, imageUpload.single('image'), async (req, res) => {
-    try {
-        if (!req.file) return res.status(400).json({ error: 'No image uploaded' });
+        const type = req.query.type;
+        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
         const userId = getUserId(req);
         const theme = await statements.getThemeById.get(req.params.id, userId);
         if (!theme) return res.status(404).json({ error: 'Theme not found' });
 
-        // Sanitise filename: keep only safe characters, lowercase
         const ext = path.extname(req.file.originalname).toLowerCase();
         let filename = path.basename(req.file.originalname, ext)
             .replace(/[^a-z0-9_\-]/gi, '_')
@@ -790,7 +723,6 @@ app.post('/api/themes/:id/images', ensureAuthenticated, imageUpload.single('imag
         const dir = getThemeFilesDir(theme.id);
         await fsPromises.mkdir(dir, { recursive: true });
 
-        // Avoid collision: prefix with timestamp if name already exists
         if (fssync.existsSync(path.join(dir, filename))) {
             filename = `${Date.now()}_${filename}`;
         }
@@ -799,123 +731,53 @@ app.post('/api/themes/:id/images', ensureAuthenticated, imageUpload.single('imag
 
         const result = await fileStatements.create.run({
             themeId: theme.id,
-            type: 'image',
+            type,
             filename,
             mimeType: req.file.mimetype,
             size: req.file.size,
             createdAt: new Date().toISOString()
         });
-        const img = await fileStatements.getById.get(result.lastInsertRowid, theme.id);
-        res.status(201).json({
-            ...img,
-            lessParam: filenameToLessParam(img.filename)
-        });
+        const file = await fileStatements.getById.get(result.lastInsertRowid, theme.id);
+        res.status(201).json(file);
     } catch (error) {
-        res.status(500).json({ error: 'Failed to upload image', details: error.message });
+        res.status(500).json({ error: 'Failed to upload file', details: error.message });
     }
 });
 
-// DELETE /api/themes/:id/images/:imageId — delete an image
-app.delete('/api/themes/:id/images/:imageId', ensureAuthenticated, async (req, res) => {
+// GET /api/themes/:id/files — list all files (images + fonts) for a theme
+app.get('/api/themes/:id/files', ensureAuthenticated, async (req, res) => {
     try {
         const userId = getUserId(req);
         const theme = await statements.getThemeById.get(req.params.id, userId);
         if (!theme) return res.status(404).json({ error: 'Theme not found' });
 
-        const img = await fileStatements.getById.get(req.params.imageId, theme.id);
-        if (!img || img.type !== 'image') return res.status(404).json({ error: 'Image not found' });
+        const files = await fileStatements.getByTheme.all(theme.id);
+        res.json(files);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch files', details: error.message });
+    }
+});
+
+// DELETE /api/themes/:id/files/:fileId — delete any file (image or font)
+app.delete('/api/themes/:id/files/:fileId', ensureAuthenticated, async (req, res) => {
+    try {
+        const userId = getUserId(req);
+        const theme = await statements.getThemeById.get(req.params.id, userId);
+        if (!theme) return res.status(404).json({ error: 'Theme not found' });
+
+        const file = await fileStatements.getById.get(req.params.fileId, theme.id);
+        if (!file) return res.status(404).json({ error: 'File not found' });
 
         try {
-            await fsPromises.unlink(path.join(getThemeFilesDir(theme.id), img.filename));
+            await fsPromises.unlink(path.join(getThemeFilesDir(theme.id), file.filename));
         } catch (e) {
             if (e.code !== 'ENOENT') throw e;
         }
 
-        await fileStatements.deleteOne.run(img.id, theme.id);
+        await fileStatements.deleteOne.run(file.id, theme.id);
         res.status(204).send();
     } catch (error) {
-        res.status(500).json({ error: 'Failed to delete image', details: error.message });
-    }
-});
-
-
-// GET /api/themes/:id/fonts — list fonts for a theme
-app.get('/api/themes/:id/fonts', ensureAuthenticated, async (req, res) => {
-    try {
-        const userId = getUserId(req);
-        const theme = await statements.getThemeById.get(req.params.id, userId);
-        if (!theme) return res.status(404).json({ error: 'Theme not found' });
-
-        const fonts = await fileStatements.getByThemeAndType.all(theme.id, 'font');
-        res.json(fonts);
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch fonts', details: error.message });
-    }
-});
-
-// POST /api/themes/:id/fonts — upload a font file
-app.post('/api/themes/:id/fonts', ensureAuthenticated, fontUpload.single('font'), async (req, res) => {
-    try {
-        if (!req.file) return res.status(400).json({ error: 'No font uploaded' });
-
-        const userId = getUserId(req);
-        const theme = await statements.getThemeById.get(req.params.id, userId);
-        if (!theme) return res.status(404).json({ error: 'Theme not found' });
-
-        // Sanitise filename: keep only safe characters, lowercase, preserve extension
-        const ext = path.extname(req.file.originalname).toLowerCase();
-        if (!FONT_EXTENSIONS.has(ext)) {
-            return res.status(400).json({ error: 'Only .woff, .woff2, .ttf, .otf files are allowed' });
-        }
-        let filename = path.basename(req.file.originalname, ext)
-            .replace(/[^a-z0-9_\-]/gi, '_')
-            .toLowerCase() + ext;
-
-        const dir = getThemeFilesDir(theme.id);
-        await fsPromises.mkdir(dir, { recursive: true });
-
-        // Avoid collision: prefix with timestamp if name already exists
-        if (fssync.existsSync(path.join(dir, filename))) {
-            filename = `${Date.now()}_${filename}`;
-        }
-
-        await fsPromises.writeFile(path.join(dir, filename), req.file.buffer);
-
-        const result = await fileStatements.create.run({
-            themeId: theme.id,
-            type: 'font',
-            filename,
-            mimeType: req.file.mimetype,
-            size: req.file.size,
-            createdAt: new Date().toISOString()
-        });
-        const font = await fileStatements.getById.get(result.lastInsertRowid, theme.id);
-        res.status(201).json(font);
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to upload font', details: error.message });
-    }
-});
-
-// DELETE /api/themes/:id/fonts/:fontId — delete a font
-app.delete('/api/themes/:id/fonts/:fontId', ensureAuthenticated, async (req, res) => {
-    try {
-        const userId = getUserId(req);
-        const theme = await statements.getThemeById.get(req.params.id, userId);
-        if (!theme) return res.status(404).json({ error: 'Theme not found' });
-
-        const font = await fileStatements.getById.get(req.params.fontId, theme.id);
-        if (!font || font.type !== 'font') return res.status(404).json({ error: 'Font not found' });
-
-        try {
-            await fsPromises.unlink(path.join(getThemeFilesDir(theme.id), font.filename));
-        } catch (e) {
-            if (e.code !== 'ENOENT') throw e;
-        }
-
-        await fileStatements.deleteOne.run(font.id, theme.id);
-        res.status(204).send();
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to delete font', details: error.message });
+        res.status(500).json({ error: 'Failed to delete file', details: error.message });
     }
 });
 
@@ -934,14 +796,7 @@ app.post('/api/compile-theme', ensureAuthenticated, async (req, res) => {
 			const userId = getUserId(req);
 			const theme = await statements.getThemeById.get(id, userId);
 			if (theme) {
-				const dbImages = await fileStatements.getByThemeAndType.all(theme.id, 'image'); //todo check fonts ?
-				const dbFonts  = await fileStatements.getByThemeAndType.all(theme.id, 'font');
-				filesPayload = [...dbImages, ...dbFonts].map(f => ({
-					themeId: theme.id,
-					type: f.type,
-					filename: f.filename,
-					mimeType: f.mimeType
-				}));
+				filesPayload = await fileStatements.getByTheme.all(theme.id);
 			}
 		}
 

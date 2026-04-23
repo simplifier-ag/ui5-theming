@@ -20,7 +20,7 @@ Opens http://localhost:8080 automatically.
 - **Custom CSS**: Add custom LESS/CSS for advanced customizations
 - **Image Upload**: Upload images (e.g. logos) and reference them in Custom CSS via `url('images/filename')`
 - **Live Preview**: Preview changes in real-time using compiled LESS
-- **Theme Export**: Export themes as ZIP files compatible with Simplifier and UI5 apps
+- **Theme Export**: Export themes as ZIP files compatible with any UI5 app
 - **Theme Import**: Import previously exported themes (SAP Theme Designer format)
 - **OAuth Authentication**: Multi-user support with Keycloak/OIDC integration
 - **Multiple UI5 Versions**: Export themes for UI5 1.96.40, 1.120.x, 1.136.x
@@ -95,7 +95,7 @@ See `docker-compose.yml` for full configuration.
 4. **Upload Images**: Upload logo or background images via the Images panel; reference them in Custom CSS with `url('images/filename')`
 5. **Preview**: Changes are compiled live and shown in the preview iframe
 6. **Save**: Saves all settings to the database
-7. **Export**: Click "Export" to download a ZIP compatible with Simplifier/UI5
+7. **Export**: Click "Export" to download a ZIP compatible with any UI5 app
 
 ## Environment Variables
 
@@ -161,12 +161,13 @@ NODE_ENV=production                 # Use "development" for HTTP session cookies
 | `PUT` | `/api/themes/:id` | Update theme |
 | `DELETE` | `/api/themes/:id` | Delete theme |
 
-### Images
+### Files (Images & Fonts)
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/themes/:id/images` | List uploaded images |
-| `POST` | `/api/themes/:id/images` | Upload image |
-| `DELETE` | `/api/themes/:id/images/:imageId` | Delete image |
+| `GET` | `/api/themes/:id/files` | List all uploaded files |
+| `POST` | `/api/themes/:id/files?type=image` | Upload image |
+| `POST` | `/api/themes/:id/files?type=font` | Upload font |
+| `DELETE` | `/api/themes/:id/files/:fileId` | Delete file |
 
 ### Preview (proxied to Builder)
 | Method | Path | Description |

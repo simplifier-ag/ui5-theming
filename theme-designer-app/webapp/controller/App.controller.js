@@ -39,8 +39,7 @@ sap.ui.define([
 		},
 
 		onNavBack: function () {
-			const oRouter = this.getOwnerComponent().getRouter();
-			oRouter.navTo("themeOverview");
+			this.getOwnerComponent().getEventBus().publish("app", "navBack");
 		},
 
 		onHomeIconPressed: function () {

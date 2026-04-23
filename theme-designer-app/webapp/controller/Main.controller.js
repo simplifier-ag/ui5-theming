@@ -12,7 +12,6 @@ sap.ui.define([
 	return BaseController.extend("themedesigner.controller.Main", {
 
 
-		//todo images ins Theme Model verschieben
 		onInit: function () {
 			// Initialize empty theme model (will be loaded from DB)
 			var oThemeModel = new JSONModel({
@@ -26,17 +25,11 @@ sap.ui.define([
 				ui5Version: "1.96.40",  // Default UI5 version
 				customCss: "/* Add your custom CSS here */\n",
 				description: "",
-				isModified: false
+				isModified: false,
+				files: [],
+				imageSelectOptions: []
 			});
 			this.getView().setModel(oThemeModel, "themeModel");
-
-			// Initialize images model
-			var oImagesModel = new JSONModel({ images: [] });
-			this.getView().setModel(oImagesModel, "imagesModel");
-
-			// Initialize fonts model
-			var oFontsModel = new JSONModel({ fonts: [] });
-			this.getView().setModel(oFontsModel, "fontsModel");
 
 			// Initialize debounce timer for preview updates
 			this._previewDebounceTimer = null;
@@ -49,6 +42,8 @@ sap.ui.define([
 			// Attach to routing to load theme when navigated
 			var oRouter = sap.ui.core.UIComponent.getRouterFor(this);
 			oRouter.getRoute("themeEditor").attachPatternMatched(this._onThemeMatched, this);
+
+			this.getOwnerComponent().getEventBus().subscribe("app", "navBack", this._onNavBack, this);
 		},
 
 		_onThemeMatched: function (oEvent) {
@@ -84,16 +79,14 @@ sap.ui.define([
 						customCss: oTheme.customCss || "/* Add your custom CSS here */\n",
 						backgroundImage: "",
 						description: oTheme.description || "",
-						isModified: false
+						isModified: false,
+						files: [],
+						imageSelectOptions: []
 					});
 
-						// Load images and fonts in parallel before triggering preview.
-					// Images must be loaded first so the background-image Select has
-					// its options before selectedKey is applied — avoids "None" on first load.
-					Promise.all([
-						this._loadImages(oTheme.id),
-						this._loadFonts(oTheme.id)
-					]).then(function () {
+						// Load all files before triggering preview so the background-image
+					// Select has its options before selectedKey is applied.
+					this._loadFiles(oTheme.id).then(function () {
 						oModel.setProperty("/backgroundImage", oTheme.backgroundImage || "");
 						this._applyPreview();
 					}.bind(this));
@@ -295,8 +288,6 @@ sap.ui.define([
 				}.bind(this));
 		},
 
-		//todo onBackToOverview ?
-
 		_ensureHexColor: function (color) {
 			// If already hex format, return as-is
 			if (color && color.match(/^#[0-9A-Fa-f]{6}$/)) {
@@ -344,27 +335,7 @@ sap.ui.define([
 
 			// Pass files metadata (same shape as compile-theme payload) — the builder handles
 			// LESS var generation and url('images/X') rewriting in customCss.
-			var aImages = iDbId
-				? (this.getView().getModel("imagesModel").getProperty("/images") || []).map(function (img) {
-					return {
-						themeId: iDbId,
-						type: img.type || 'image',
-						filename: img.filename,
-						mimeType: img.mimeType
-					};
-				})
-				: [];
-			var aFonts = iDbId
-				? (this.getView().getModel("fontsModel").getProperty("/fonts") || []).map(function (f) {
-					return {
-						themeId: iDbId,
-						type: 'font',
-						filename: f.filename,
-						mimeType: f.mimeType
-					};
-				})
-				: [];
-			var aFiles = aImages.concat(aFonts);
+			var aFiles = iDbId ? (oModel.getProperty("/files") || []) : [];
 
 			var oData = {
 				baseTheme: oModel.getProperty("/baseTheme"),
@@ -464,18 +435,18 @@ sap.ui.define([
 			}.bind(this));
 		},
 
-		_loadImages: function (iDbId) {
-			return fetch("/api/themes/" + iDbId + "/images", { credentials: "include" })
+		_loadFiles: function (iDbId) {
+			return fetch("/api/themes/" + iDbId + "/files", { credentials: "include" })
 				.then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
-				.then(function (aImages) {
-					const oImagesModel = this.getView().getModel("imagesModel");
-					oImagesModel.setProperty("/images", aImages);
-					const aOptions = [{ key: "", text: "– None –" }].concat(
-						aImages.map(function (img) { return { key: img.filename, text: img.filename }; })//todo change to binding
-					);
-					oImagesModel.setProperty("/selectOptions", aOptions);
+				.then(function (aFiles) {
+					var oModel = this.getView().getModel("themeModel");
+					oModel.setProperty("/files", aFiles);
+					var aImages = aFiles.filter(function (f) { return f.type === 'image'; });
+					oModel.setProperty("/imageSelectOptions", [{ key: "", text: "– None –" }].concat(
+						aImages.map(function (img) { return { key: img.filename, text: img.filename }; })
+					));
 				}.bind(this))
-				.catch(function (e) { console.error("Failed to load images:", e); });
+				.catch(function (e) { console.error("Failed to load files:", e); });
 		},
 
 
@@ -486,29 +457,15 @@ sap.ui.define([
 		},
 
 
-		onUploadImage: function () {
-			if (!this._imageFileInput) {
-				this._imageFileInput = document.createElement("input");
-				this._imageFileInput.type = "file";
-				this._imageFileInput.accept = "image/*";
-				this._imageFileInput.style.display = "none";
-				document.body.appendChild(this._imageFileInput);
-				this._imageFileInput.addEventListener("change", this._onImageFileSelected.bind(this));
-			}
-			this._imageFileInput.value = "";
-			this._imageFileInput.click();
-		},
-
-		//todo fileupload ?
-
-		_onImageFileSelected: function (event) {
-			var file = event.target.files[0];
-			if (!file) return;
+		onUploadImage: function (oEvent) {
+			var oFileUploader = oEvent.getSource();
+			var oFile = oFileUploader.oFileUpload.files[0];
+			if (!oFile) return;
 			var iDbId = this.getView().getModel("themeModel").getProperty("/id");
 			var formData = new FormData();
-			formData.append("image", file);
+			formData.append("file", oFile);
 			this.getView().setBusy(true);
-			fetch("/api/themes/" + iDbId + "/images", {
+			fetch("/api/themes/" + iDbId + "/files?type=image", {
 				method: "POST",
 				body: formData,
 				credentials: "include"
@@ -517,7 +474,8 @@ sap.ui.define([
 					return r.ok ? r.json() : r.json().then(function (e) { return Promise.reject(e); });
 				})
 				.then(function () {
-					this._loadImages(iDbId);
+					oFileUploader.clear();
+					this._loadFiles(iDbId);
 					MessageToast.show("Image uploaded successfully");
 				}.bind(this))
 				.catch(function (e) {
@@ -528,21 +486,21 @@ sap.ui.define([
 				}.bind(this));
 		},
 
-		onDeleteImage: function (oEvent) {
-			var oCtx = oEvent.getSource().getBindingContext("imagesModel");
-			var oImg = oCtx.getObject();
+		onDeleteFile: function (oEvent) {
+			var oCtx = oEvent.getSource().getBindingContext("themeModel");
+			var oFile = oCtx.getObject();
 			var iDbId = this.getView().getModel("themeModel").getProperty("/id");
-			MessageBox.confirm('Delete image "' + oImg.filename + '"?', {
-				title: "Delete Image",
+			MessageBox.confirm('Delete "' + oFile.filename + '"?', {
+				title: "Delete",
 				onClose: function (sAction) {
 					if (sAction !== MessageBox.Action.OK) return;
-					fetch("/api/themes/" + iDbId + "/images/" + oImg.id, {
+					fetch("/api/themes/" + iDbId + "/files/" + oFile.id, {
 						method: "DELETE",
 						credentials: "include"
 					})
 						.then(function (r) {
 							if (!r.ok) throw new Error("Delete failed");
-							return this._loadImages(iDbId);
+							return this._loadFiles(iDbId);
 						}.bind(this))
 						.catch(function (e) { MessageBox.error(e.message); });
 				}.bind(this)
@@ -550,7 +508,8 @@ sap.ui.define([
 		},
 
 		onCopyLessParam: function (oEvent) {
-			var sParam = '@' + oEvent.getSource().getBindingContext("imagesModel").getProperty("lessParam");
+			var sFilename = oEvent.getSource().getBindingContext("themeModel").getProperty("filename");
+			var sParam = '@' + this._filenameToLessParam(sFilename);
 			if (navigator.clipboard) {
 				navigator.clipboard.writeText(sParam).then(function () {
 					MessageToast.show("Copied: " + sParam);
@@ -560,41 +519,34 @@ sap.ui.define([
 			}
 		},
 
-		_loadFonts: function (iDbId) {
-			return fetch("/api/themes/" + iDbId + "/fonts", { credentials: "include" })
-				.then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
-				.then(function (aFonts) {
-					var aFontsWithFamily = aFonts.map(function (f) {
-						var dotIdx = f.filename.lastIndexOf('.');
-						var fontFamily = dotIdx !== -1 ? f.filename.substring(0, dotIdx) : f.filename;
-						return Object.assign({}, f, { fontFamily: fontFamily });
-					});
-					this.getView().getModel("fontsModel").setProperty("/fonts", aFontsWithFamily);
-				}.bind(this))
-				.catch(function (e) { console.error("Failed to load fonts:", e); });
+		// Mirrors filenameToLessParam() in theme-designer-app/server/server.js
+		_filenameToLessParam: function (sFilename) {
+			var base = sFilename.replace(/\.[^.]+$/, '');
+			var words = base.split(/[-_\s]+/).filter(Boolean);
+			var pascal = words.map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join('');
+			return 'themeImage' + pascal;
 		},
 
-		onUploadFont: function () {
-			if (!this._fontFileInput) {
-				this._fontFileInput = document.createElement("input");
-				this._fontFileInput.type = "file";
-				this._fontFileInput.accept = ".woff,.woff2,.ttf,.otf";
-				this._fontFileInput.style.display = "none";
-				document.body.appendChild(this._fontFileInput);
-				this._fontFileInput.addEventListener("change", this._onFontFileSelected.bind(this));
-			}
-			this._fontFileInput.value = "";
-			this._fontFileInput.click();
+		formatLessParam: function (sFilename) {
+			return sFilename ? '@' + this._filenameToLessParam(sFilename) : '';
 		},
 
-		_onFontFileSelected: function (event) {
-			var file = event.target.files[0];
-			if (!file) return;
+		formatFontFamily: function (sFilename) {
+			if (!sFilename) return '';
+			var dotIdx = sFilename.lastIndexOf('.');
+			var family = dotIdx !== -1 ? sFilename.substring(0, dotIdx) : sFilename;
+			return 'font-family: "' + family + '"';
+		},
+
+		onUploadFont: function (oEvent) {
+			var oFileUploader = oEvent.getSource();
+			var oFile = oFileUploader.oFileUpload.files[0];
+			if (!oFile) return;
 			var iDbId = this.getView().getModel("themeModel").getProperty("/id");
 			var formData = new FormData();
-			formData.append("font", file);
+			formData.append("file", oFile);
 			this.getView().setBusy(true);
-			fetch("/api/themes/" + iDbId + "/fonts", {
+			fetch("/api/themes/" + iDbId + "/files?type=font", {
 				method: "POST",
 				body: formData,
 				credentials: "include"
@@ -603,7 +555,8 @@ sap.ui.define([
 					return r.ok ? r.json() : r.json().then(function (e) { return Promise.reject(e); });
 				})
 				.then(function () {
-					this._loadFonts(iDbId).then(function () {
+					oFileUploader.clear();
+					this._loadFiles(iDbId).then(function () {
 						this._applyPreview();
 					}.bind(this));
 					MessageToast.show("Font uploaded successfully");
@@ -616,29 +569,28 @@ sap.ui.define([
 				}.bind(this));
 		},
 
-		onDeleteFont: function (oEvent) {
-			var oCtx = oEvent.getSource().getBindingContext("fontsModel");
-			var oFont = oCtx.getObject();
-			var iDbId = this.getView().getModel("themeModel").getProperty("/id");
-			MessageBox.confirm('Delete font "' + oFont.filename + '"?', {
-				title: "Delete Font",
-				onClose: function (sAction) {
-					if (sAction !== MessageBox.Action.OK) return;
-					fetch("/api/themes/" + iDbId + "/fonts/" + oFont.id, {
-						method: "DELETE",
-						credentials: "include"
-					})
-						.then(function (r) {
-							if (!r.ok) throw new Error("Delete failed");
-							return this._loadFonts(iDbId);
-						}.bind(this))
-						.then(function () { this._applyPreview(); }.bind(this))
-						.catch(function (e) { MessageBox.error(e.message); });
-				}.bind(this)
-			});
+		_onNavBack: function () {
+			var oModel = this.getView().getModel("themeModel");
+			var oRouter = sap.ui.core.UIComponent.getRouterFor(this);
+			if (oModel.getProperty("/isModified")) {
+				MessageBox.confirm(
+					"You have unsaved changes. Are you sure you want to leave?",
+					{
+						title: "Unsaved Changes",
+						onClose: function (sAction) {
+							if (sAction === MessageBox.Action.OK) {
+								oRouter.navTo("themeOverview");
+							}
+						}
+					}
+				);
+			} else {
+				oRouter.navTo("themeOverview");
+			}
 		},
 
 		onExit: function () {
+			this.getOwnerComponent().getEventBus().unsubscribe("app", "navBack", this._onNavBack, this);
 			// Cleanup ColorPicker popovers
 			if (this.oBrandColorPicker) {
 				this.oBrandColorPicker.destroy();
@@ -651,14 +603,6 @@ sap.ui.define([
 			if (this.oShellColorPicker) {
 				this.oShellColorPicker.destroy();
 				this.oShellColorPicker = null;
-			}
-			if (this._imageFileInput) {
-				document.body.removeChild(this._imageFileInput);
-				this._imageFileInput = null;
-			}
-			if (this._fontFileInput) {
-				document.body.removeChild(this._fontFileInput);
-				this._fontFileInput = null;
 			}
 		},
 
