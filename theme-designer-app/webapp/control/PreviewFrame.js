@@ -9,7 +9,7 @@ sap.ui.define([
 				/**
 				 * URL of the page to display in the iframe
 				 */
-				src: {type: "string", defaultValue: "preview.html"}
+				src: {type: "string", defaultValue: "about:blank"}
 			},
 			aggregations: {
 				/**

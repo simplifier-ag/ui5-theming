@@ -56,7 +56,7 @@
 					</layoutData>
 					<content>
 						<VBox width="100%" height="100%" class="previewContainer" id="previewContainer" busyIndicatorDelay="0">
-							<custom:PreviewFrame id="previewFrame" src="preview.html" />
+							<custom:PreviewFrame id="previewFrame" />
 						</VBox>
 					</content>
 				</Panel>
