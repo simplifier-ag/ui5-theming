@@ -62,7 +62,7 @@ function filenameToLessParam(filename) {
 
 function buildImageLessVars(images) {
 	return images
-		.map(img => `@${filenameToLessParam(img.filename)}: url('images/${img.filename}');`)
+		.map(img => `@${filenameToLessParam(img.filename)}: url('./images/${img.filename}');`)
 		.join('\n');
 }
 
@@ -73,7 +73,7 @@ function buildFontFaceCss(fontFiles) {
 		const ext  = path.extname(f.filename).toLowerCase();
 		const fmt  = FONT_FORMAT[ext] || 'truetype';
 		const name = path.basename(f.filename, path.extname(f.filename));
-		return `@font-face {\n  font-family: "${name}";\n  src: url('fonts/${f.filename}') format('${fmt}');\n  font-weight: normal;\n  font-style: normal;\n}`;
+		return `@font-face {\n  font-family: "${name}";\n  src: url('./fonts/${f.filename}') format('${fmt}');\n  font-weight: normal;\n  font-style: normal;\n}`;
 	}).join('\n');
 }
 
@@ -131,7 +131,7 @@ function resolveThemeParams(body) {
 	const baseLessContent  = buildBaseLessContent(resolvedBrand, resolvedFocus, resolvedShell, imageFiles, hasCustomCss);
 	const coreExtraContent = buildCoreExtraContent(fontFiles, backgroundImage, imageFiles);
 	const imageParams = Object.fromEntries(
-		imageFiles.map(f => [filenameToLessParam(f.filename), `url('images/${f.filename}')`])
+		imageFiles.map(f => [filenameToLessParam(f.filename), `url('./images/${f.filename}')`])
 	);
 
 	return {
@@ -170,39 +170,54 @@ function evictExpiredCache() {
 async function buildThemeToDir({ themeId, themeName, baseTheme, brandColor, focusColor, shellColor, baseLessContent, coreExtraContent, customCss, description, imageFiles, fontFiles, imageParams }, outputDir) {
 	// LESS temp files go to a separate dir so they don't end up in outputDir
 	const lessUniqueId = path.basename(outputDir) + '_less';
+	const lessTempDir = path.join(__dirname, 'temp', lessUniqueId);
+	const coreThemeTempDir = themeBuilder.getCoreThemeDir(lessUniqueId, themeId);
+
+	// Copy fonts and images into the temp dir BEFORE compilation so that
+	// less-openui5 can resolve url() paths relative to the LESS files.
+	// This way the compiler automatically generates correct relative paths
+	// for each library — no post-compilation fixup needed.
+	const tempFontsDir = path.join(coreThemeTempDir, 'fonts');
+	await fs.mkdir(tempFontsDir, { recursive: true });
+	for (const [fontsDir, label] of [[themeBuilder.getFontsDir(baseTheme), 'theme'], [themeBuilder.getBaseFontsDir(), 'base']]) {
+		try {
+			for (const file of await fs.readdir(fontsDir)) {
+				const dest = path.join(tempFontsDir, file);
+				if (!fssync.existsSync(dest)) await fs.copyFile(path.join(fontsDir, file), dest);
+			}
+		} catch (e) { console.warn(`[Build] Could not copy ${label} fonts to temp: ${e.message}`); }
+	}
+	for (const f of fontFiles) {
+		try { await fs.copyFile(getSharedFilePath(f.themeId, f.filename), path.join(tempFontsDir, f.filename)); }
+		catch (e) { console.warn(`[Build] Could not copy font ${f.filename} to temp: ${e.message}`); }
+	}
+
+	if (imageFiles.length > 0) {
+		const tempImagesDir = path.join(coreThemeTempDir, 'images');
+		await fs.mkdir(tempImagesDir, { recursive: true });
+		for (const f of imageFiles) {
+			try { await fs.copyFile(getSharedFilePath(f.themeId, f.filename), path.join(tempImagesDir, f.filename)); }
+			catch (e) { console.warn(`[Build] Could not copy image ${f.filename} to temp: ${e.message}`); }
+		}
+	}
+
 	const themeResults = await themeBuilder.buildTheme({
 		themeName: themeId, baseLessContent, coreExtraContent, customCss, baseTheme, uniqueId: lessUniqueId
 	});
-	await fs.rm(path.join(__dirname, 'temp', lessUniqueId), { recursive: true, force: true }).catch(() => {});
 
-	// Images go to sap/ui/core/themes/{themeId}/images/ — theme-ID specific, no conflicts between themes.
-	// Each library's compiled CSS gets a corrected relative path via fixImagePaths.
-	const sharedImagesDir = path.join(outputDir, 'sap', 'ui', 'core', 'themes', themeId, 'images');
-	if (imageFiles.length > 0) {
-		await fs.mkdir(sharedImagesDir, { recursive: true });
-		for (const f of imageFiles) {
-			try { await fs.copyFile(getSharedFilePath(f.themeId, f.filename), path.join(sharedImagesDir, f.filename)); }
-			catch (e) { console.warn(`[Build] Could not copy image ${f.filename}: ${e.message}`); }
-		}
-	}
+	// Copy the entire core theme temp dir (fonts, images, custom.less) to output
+	const coreOutputDir = path.join(outputDir, 'sap', 'ui', 'core', 'themes', themeId);
+	await fs.mkdir(coreOutputDir, { recursive: true });
+	await fs.cp(coreThemeTempDir, coreOutputDir, { recursive: true }).catch(e => console.warn('[Build] Could not copy core theme dir:', e.message));
+
+	await fs.rm(lessTempDir, { recursive: true, force: true }).catch(() => {});
 
 	for (const [libraryName, result] of Object.entries(themeResults)) {
 		const libraryThemeDir = path.join(outputDir, libraryName.replace(/\./g, '/'), 'themes', themeId);
 		await fs.mkdir(libraryThemeDir, { recursive: true });
 
-		// e.g. sap.ui.core → 'images', sap.m → '../../../ui/core/themes/{themeId}/images'
-		const imagesRelPath = imageFiles.length > 0
-			? path.relative(libraryThemeDir, sharedImagesDir).split(path.sep).join('/')
-			: null;
-
-		const fixCss = (css) => {
-			let fixed = themeBuilder.fixFontPaths(css, libraryName, baseTheme);
-			if (imagesRelPath) fixed = themeBuilder.fixImagePaths(fixed, imagesRelPath);
-			return fixed;
-		};
-
-		await fs.writeFile(path.join(libraryThemeDir, 'library.css'),     fixCss(result.css));
-		await fs.writeFile(path.join(libraryThemeDir, 'library-RTL.css'), fixCss(result.cssRtl));
+		await fs.writeFile(path.join(libraryThemeDir, 'library.css'),     themeBuilder.fixAssetPaths(result.css, baseTheme, themeId));
+		await fs.writeFile(path.join(libraryThemeDir, 'library-RTL.css'), themeBuilder.fixAssetPaths(result.cssRtl, baseTheme, themeId));
 
 		await fs.writeFile(path.join(libraryThemeDir, '.theming'), JSON.stringify({
 			sEntity: "Theme", sId: themeId, sVendor: "Custom",
@@ -215,25 +230,6 @@ async function buildThemeToDir({ themeId, themeName, baseTheme, brandColor, focu
 			...imageParams
 		}, null, 2));
 
-		// SAP system fonts + uploaded fonts — only in sap.ui.core (@font-face is globally visible in the browser)
-		if (libraryName === 'sap.ui.core') {
-			const targetFontsDir = path.join(libraryThemeDir, 'fonts');
-			await fs.mkdir(targetFontsDir, { recursive: true });
-
-			for (const [fontsDir, label] of [[themeBuilder.getFontsDir(baseTheme), 'theme'], [themeBuilder.getBaseFontsDir(), 'base']]) {
-				try {
-					for (const file of await fs.readdir(fontsDir)) {
-						const dest = path.join(targetFontsDir, file);
-						if (!fssync.existsSync(dest)) await fs.copyFile(path.join(fontsDir, file), dest);
-					}
-				} catch (e) { console.warn(`[Build] Could not copy ${label} fonts: ${e.message}`); }
-			}
-
-			for (const f of fontFiles) {
-				try { await fs.copyFile(getSharedFilePath(f.themeId, f.filename), path.join(targetFontsDir, f.filename)); }
-				catch (e) { console.warn(`[Build] Could not copy font ${f.filename}: ${e.message}`); }
-			}
-		}
 	}
 
 	return themeResults;
@@ -273,8 +269,8 @@ app.post('/api/preview-compile', async (req, res) => {
 
 		const cacheKey = getCacheKey({
 			baseTheme, brandColor, focusColor, shellColor,
-			baseLessContent,
-			fileKeys: files.map(f => f.filename).sort().join(',')
+			baseLessContent, coreExtraContent, customCss,
+			fileKeys: files.map(f => `${f.filename}:${f.id || ''}:${f.size || ''}`).sort().join(',')
 		});
 
 		evictExpiredCache();
@@ -369,15 +365,6 @@ app.post('/api/compile-theme', async (req, res) => {
 			brandColor, focusColor, shellColor,
 			baseLessContent, coreExtraContent, customCss, description, imageFiles, fontFiles, imageParams
 		}, tempDir);
-
-		// Write custom.less into sap.ui.core for SAP Theme Designer re-import compatibility
-		if (customCss && customCss.trim()) {
-			const coreThemeDir = path.join(tempDir, 'sap', 'ui', 'core', 'themes', themeId);
-			await fs.writeFile(
-				path.join(coreThemeDir, 'custom.less'),
-				`/*<SAP_FREETEXT_LESS>*/${customCss}/*</SAP_FREETEXT_LESS>*/`
-			).catch(e => console.warn('[Export] Could not write custom.less:', e.message));
-		}
 
 		const exportThemesInfo = {
 			zipInfo: {

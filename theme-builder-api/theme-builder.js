@@ -58,53 +58,66 @@ class ThemeBuilder {
 		return path.join(__dirname, 'node_modules/@openui5/sap.ui.core/src/sap/ui/core/themes/base/fonts');
 	}
 
-	// Fixes image url() in compiled CSS: replaces url('images/...') with the correct relative path
-	// from the library's theme dir to sap/ui/core/themes/{themeId}/images/.
-	fixImagePaths(css, imagesRelPath) {
-		return css
-			.replace(/url\('images\//g, `url('${imagesRelPath}/`)
-			.replace(/url\("images\//g, `url("${imagesRelPath}/`);
-	}
-
-	// Fixes font url() in compiled CSS.
-	// less-openui5 generates absolute paths like url('sap/ui/core/themes/sap_fiori_3/fonts/...')
-	// and url('sap/ui/core/themes/base/fonts/...'). Both get rewritten to url('fonts/...').
-	fixFontPaths(css, libraryName, baseTheme) {
-		const lib = libraryName.replace(/\./g, '/');
-		let result = css.replace(new RegExp(`['"]${lib}/themes/${baseTheme}/fonts/`, 'g'), `'fonts/`);
-		return result.replace(new RegExp(`['"]${lib}/themes/base/fonts/`, 'g'), `'fonts/`);
+	// Fixes asset url() paths in compiled CSS.
+	// less-openui5 outputs url() paths relative to the temp root (first rootPath).
+	// For sap.ui.core the library.css lives in sap/ui/core/themes/{themeId}/ — the same
+	// directory where fonts/ and images/ reside. But the compiler generates paths like
+	// url('sap/ui/core/themes/{themeId}/fonts/...') which the browser would resolve
+	// relative to the CSS file, doubling the path. We rewrite them to url('fonts/...').
+	// The same applies to images/ for sap.ui.core.
+	// For other libraries (sap.m etc.) the compiler correctly generates longer relative
+	// paths (e.g. '../../../ui/core/themes/{themeId}/images/...') — no fixup needed there.
+	fixAssetPaths(css, baseTheme, themeId) {
+		const fontTheme = baseTheme.replace(/_(dark|hcb|hcw)$/, '');
+		const coreThemePrefix = (theme) => `sap/ui/core/themes/${theme}/`;
+		const fix = (str, prefix, replacement) =>
+			str.replace(new RegExp(`url\\((['"])${prefix}`, 'g'), (_, q) => `url(${q}${replacement}`);
+		let result = css;
+		result = fix(result, `${coreThemePrefix(fontTheme)}fonts/`, 'fonts/');
+		result = fix(result, `${coreThemePrefix('base')}fonts/`, 'fonts/');
+		result = fix(result, `${coreThemePrefix(themeId)}fonts/`, 'fonts/');
+		result = fix(result, `${coreThemePrefix(themeId)}images/`, 'images/');
+		return result;
 	}
 
 	/**
 	 * Builds a complete UI5 theme — returns compiled results keyed by library name.
 	 *
-	 * base.less:       imported by every library — color overrides + image vars + @import "custom.less"
-	 * core_extra.less: imported only by sap.ui.core — @font-face declarations + background image selector
-	 * custom.less:     user's raw LESS/CSS — imported by base.less
+	 * LESS files are written into the correct sub-folder structure inside tempDir so that
+	 * less-openui5 (with relativeUrls: true) automatically computes correct relative url()
+	 * paths for fonts and images — no post-compilation fixup needed.
 	 *
-	 * All three files are written to tempDir root. less-openui5 rewrites url() paths relative to the
-	 * LESS file's position in rootPaths — keeping files at root ensures url('images/...') and
-	 * url('fonts/...') pass through unchanged for fixImagePaths/fixFontPaths to handle.
+	 * Structure inside tempDir:
+	 *   sap/ui/core/themes/{themeName}/base.less        — color overrides + image vars + @import "custom.less"
+	 *   sap/ui/core/themes/{themeName}/core_extra.less   — @font-face declarations + background image selector
+	 *   sap/ui/core/themes/{themeName}/custom.less       — user's raw LESS/CSS
+	 *   sap/ui/core/themes/{themeName}/fonts/            — symlinks/copies of font files (must exist before compile)
+	 *   sap/ui/core/themes/{themeName}/images/           — symlinks/copies of image files (must exist before compile)
+	 *   {lib}_custom.less per library                    — entry point that imports library.source.less + base.less
+	 *
+	 * Caller must ensure fonts/ and images/ directories are populated in the coreThemeDir
+	 * BEFORE calling this method (see buildThemeToDir in server.js).
 	 */
 	async buildTheme({ themeName, baseLessContent = '', coreExtraContent = '', customCss = '', baseTheme = 'sap_horizon', uniqueId = null }) {
 		console.log(`Building theme: ${themeName}`);
 
 		const tempDir = uniqueId ? path.join(__dirname, 'temp', uniqueId) : path.join(__dirname, 'temp');
-		fssync.mkdirSync(tempDir, { recursive: true });
+		const coreThemeDir = path.join(tempDir, 'sap', 'ui', 'core', 'themes', themeName);
+		fssync.mkdirSync(coreThemeDir, { recursive: true });
 
 		const hasBase      = !!(baseLessContent.trim());
 		const hasCoreExtra = !!(coreExtraContent.trim());
 		const hasCustom    = !!(customCss.trim());
-		if (hasBase)      fssync.writeFileSync(path.join(tempDir, 'base.less'),       baseLessContent);
-		if (hasCoreExtra) fssync.writeFileSync(path.join(tempDir, 'core_extra.less'), coreExtraContent);
-		if (hasCustom)    fssync.writeFileSync(path.join(tempDir, 'custom.less'),     customCss);
+		if (hasBase)      fssync.writeFileSync(path.join(coreThemeDir, 'base.less'),       baseLessContent);
+		if (hasCoreExtra) fssync.writeFileSync(path.join(coreThemeDir, 'core_extra.less'), coreExtraContent);
+ 		if (hasCustom)    fssync.writeFileSync(path.join(coreThemeDir, 'custom.less'),     `/*<SAP_FREETEXT_LESS>*/${customCss}/*</SAP_FREETEXT_LESS>*/`);
 
 		const results = {};
 		for (const library of LIBRARIES) {
 			console.log(`Building library: ${library.name}`);
 			const isCore = library.name === 'sap.ui.core';
 			try {
-				const libResult = await this.buildLibrary(library, baseTheme, uniqueId, isCore, hasBase, hasCoreExtra);
+				const libResult = await this.buildLibrary(library, baseTheme, themeName, uniqueId, isCore, hasBase, hasCoreExtra);
 				if (libResult !== null) results[library.name] = libResult;
 			} catch (error) {
 				console.error(`Error building ${library.name}:`, error.message);
@@ -114,8 +127,17 @@ class ThemeBuilder {
 		return results;
 	}
 
+	/**
+	 * Returns the path to the core theme dir inside the temp directory.
+	 * Needed by server.js to copy fonts/images there before compilation.
+	 */
+	getCoreThemeDir(uniqueId, themeName) {
+		const tempDir = uniqueId ? path.join(__dirname, 'temp', uniqueId) : path.join(__dirname, 'temp');
+		return path.join(tempDir, 'sap', 'ui', 'core', 'themes', themeName);
+	}
+
 	// Builds a single library — returns { css, cssRtl } or null if the theme variant doesn't exist.
-	async buildLibrary(library, baseTheme, uniqueId = null, isCore = false, hasBase = false, hasCoreExtra = false) {
+	async buildLibrary(library, baseTheme, themeName, uniqueId = null, isCore = false, hasBase = false, hasCoreExtra = false) {
 		const themeLibPath = this.getThemeLibPath(baseTheme);
 		const librarySourcePath = path.join(themeLibPath, library.path, baseTheme, 'library.source.less');
 
@@ -127,10 +149,11 @@ class ThemeBuilder {
 		}
 
 		const tempDir = uniqueId ? path.join(__dirname, 'temp', uniqueId) : path.join(__dirname, 'temp');
+		const coreThemePath = `sap/ui/core/themes/${themeName}`;
 
 		let imports = '';
-		if (hasBase)                imports += `\n@import "base.less";\n`;
-		if (isCore && hasCoreExtra) imports += `\n@import "core_extra.less";\n`;
+		if (hasBase)                imports += `\n@import "${coreThemePath}/base.less";\n`;
+		if (isCore && hasCoreExtra) imports += `\n@import "${coreThemePath}/core_extra.less";\n`;
 
 		const tempLessFile = path.join(tempDir, `${library.name.replace(/\./g, '_')}_custom.less`);
 		fssync.writeFileSync(tempLessFile, `@import "${library.path}/${baseTheme}/library.source.less";\n${imports}`);
