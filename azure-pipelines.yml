@@ -41,10 +41,10 @@ stages:
             fetchDepth: 1
 
           # Build UI5 app before Docker build
-          - task: NodeTool@0
+          - task: NodeTool@1
             displayName: 'Install Node.js'
             inputs:
-              versionSpec: '22.x'
+              version: '22.x'
 
           - script: |
               cd theme-designer-app
