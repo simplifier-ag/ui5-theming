@@ -59,24 +59,28 @@ class ThemeBuilder {
 	}
 
 	// Fixes asset url() paths in compiled CSS.
-	// less-openui5 outputs url() paths relative to the temp root (first rootPath).
-	// For sap.ui.core the library.css lives in sap/ui/core/themes/{themeId}/ — the same
-	// directory where fonts/ and images/ reside. But the compiler generates paths like
-	// url('sap/ui/core/themes/{themeId}/fonts/...') which the browser would resolve
-	// relative to the CSS file, doubling the path. We rewrite them to url('fonts/...').
-	// The same applies to images/ for sap.ui.core.
-	// For other libraries (sap.m etc.) the compiler correctly generates longer relative
-	// paths (e.g. '../../../ui/core/themes/{themeId}/images/...') — no fixup needed there.
-	fixAssetPaths(css, baseTheme, themeId) {
+	// less-openui5 outputs url() paths relative to the temp root (first rootPath),
+	// so they look like url('sap/ui/core/themes/{themeId}/images/...'). Fonts and images
+	// only physically exist under sap.ui.core/themes/{themeId}/{fonts,images}/, so for
+	// every library we rewrite those absolute paths to the correct relative path back
+	// to sap.ui.core's theme dir. For sap.ui.core itself that collapses to 'images/' /
+	// 'fonts/' (same dir); for sap.m it becomes '../../../ui/core/themes/{themeId}/...'.
+	fixAssetPaths(css, baseTheme, themeId, libraryName = 'sap.ui.core') {
 		const fontTheme = baseTheme.replace(/_(dark|hcb|hcw)$/, '');
 		const coreThemePrefix = (theme) => `sap/ui/core/themes/${theme}/`;
 		const fix = (str, prefix, replacement) =>
 			str.replace(new RegExp(`url\\((['"])${prefix}`, 'g'), (_, q) => `url(${q}${replacement}`);
+
+		const libraryThemePath = `${libraryName.replace(/\./g, '/')}/themes/${themeId}`;
+		const coreThemePath    = `sap/ui/core/themes/${themeId}`;
+		const relToCore = path.posix.relative(libraryThemePath, coreThemePath);
+		const corePrefix = relToCore ? relToCore + '/' : '';
+
 		let result = css;
-		result = fix(result, `${coreThemePrefix(fontTheme)}fonts/`, 'fonts/');
-		result = fix(result, `${coreThemePrefix('base')}fonts/`, 'fonts/');
-		result = fix(result, `${coreThemePrefix(themeId)}fonts/`, 'fonts/');
-		result = fix(result, `${coreThemePrefix(themeId)}images/`, 'images/');
+		result = fix(result, `${coreThemePrefix(fontTheme)}fonts/`, `${corePrefix}fonts/`);
+		result = fix(result, `${coreThemePrefix('base')}fonts/`,    `${corePrefix}fonts/`);
+		result = fix(result, `${coreThemePrefix(themeId)}fonts/`,   `${corePrefix}fonts/`);
+		result = fix(result, `${coreThemePrefix(themeId)}images/`,  `${corePrefix}images/`);
 		return result;
 	}
 

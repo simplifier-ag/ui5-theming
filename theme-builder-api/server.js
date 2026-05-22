@@ -216,8 +216,8 @@ async function buildThemeToDir({ themeId, themeName, baseTheme, brandColor, focu
 		const libraryThemeDir = path.join(outputDir, libraryName.replace(/\./g, '/'), 'themes', themeId);
 		await fs.mkdir(libraryThemeDir, { recursive: true });
 
-		await fs.writeFile(path.join(libraryThemeDir, 'library.css'),     themeBuilder.fixAssetPaths(result.css, baseTheme, themeId));
-		await fs.writeFile(path.join(libraryThemeDir, 'library-RTL.css'), themeBuilder.fixAssetPaths(result.cssRtl, baseTheme, themeId));
+		await fs.writeFile(path.join(libraryThemeDir, 'library.css'),     themeBuilder.fixAssetPaths(result.css, baseTheme, themeId, libraryName));
+		await fs.writeFile(path.join(libraryThemeDir, 'library-RTL.css'), themeBuilder.fixAssetPaths(result.cssRtl, baseTheme, themeId, libraryName));
 
 		await fs.writeFile(path.join(libraryThemeDir, '.theming'), JSON.stringify({
 			sEntity: "Theme", sId: themeId, sVendor: "Custom",
