@@ -314,7 +314,7 @@ app.get('/api/preview-page', (req, res) => {
 	res.setHeader('Content-Type', 'text/html');
 	res.send(Mustache.render(PREVIEW_TEMPLATE, {
 		ui5Version: version || UI5_VERSION,
-		themeRootsUrl: `/api/preview-resources/${key}`,
+		themeRootsUrl: `/api/preview-resources/${UI5_VERSION}/${key}`,
 		viewXmlJson: JSON.stringify(PREVIEW_VIEW_XML)
 	}));
 });

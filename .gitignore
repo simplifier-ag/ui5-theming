@@ -33,6 +33,9 @@ theme-designer-app/server/data/
 *.db-shm
 *.db-wal
 
+# Local Docker Data
+docker-data/
+
 # IDE specific files
 .idea/
 .vscode/

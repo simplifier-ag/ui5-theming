@@ -685,12 +685,12 @@ app.get('/api/preview-page', ensureAuthenticated, async (req, res) => {
 	}
 });
 
-// GET /api/preview-resources/:cacheKey/* — UI5 theme-roots CSS/JSON (no auth — loaded directly by UI5 in iframe)
-app.get('/api/preview-resources/:cacheKey/*', async (req, res) => {
+// GET /api/preview-resources/:version/:cacheKey/* — UI5 theme-roots CSS/JSON (no auth — loaded directly by UI5 in iframe)
+app.get('/api/preview-resources/:version/:cacheKey/*', async (req, res) => {
 	try {
 		const subPath = `${req.params.cacheKey}/${req.params[0]}`;
 		const response = await builderRouter.proxyRequest(
-			null,
+			req.params.version,
 			`/api/preview-resources/${subPath}`,
 			'GET'
 		);
