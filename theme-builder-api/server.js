@@ -21,6 +21,7 @@ const archiver = require('archiver');
 const Mustache = require('mustache');
 const ThemeBuilder = require('./theme-builder');
 const { VALID_BASE_THEMES } = ThemeBuilder;
+const { connectToDesigner } = require('./designer-connection');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -475,4 +476,13 @@ app.listen(port, () => {
 	console.log('='.repeat(60));
 	console.log(`Theme Builder API  |  UI5 ${UI5_VERSION}  |  Port ${port}`);
 	console.log('='.repeat(60));
+
+	// Self-register with the Designer (if configured) so it can route requests
+	// to us without any static per-version config on its side.
+	connectToDesigner({
+		designerUrl: process.env.DESIGNER_URL,
+		selfUrl: process.env.SELF_URL,
+		ui5Version: UI5_VERSION,
+		baseThemes: VALID_BASE_THEMES
+	});
 });

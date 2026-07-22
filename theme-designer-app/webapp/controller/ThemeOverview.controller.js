@@ -15,18 +15,23 @@ sap.ui.define([
 			});
 			this.getView().setModel(oModel, "themeList");
 
-			// Initialize model for UI5 versions (shared by NewTheme and Import dialogs)
+			// Initialize model for UI5 versions (shared by NewTheme and Import dialogs).
+			// "versions" entries now carry their own "baseThemes" (as reported by each
+			// registered Builder); "selectedVersionBaseThemes" holds the ones matching
+			// the currently selected version, kept in sync by _updateSelectedVersionBaseThemes.
 			const oVersionsModel = new JSONModel({
 				versions: [],
-				selectedVersion: ""
+				selectedVersion: "",
+				selectedVersionBaseThemes: []
 			});
 			this.getView().setModel(oVersionsModel, "versions");
 
-			// Initialize model for New Theme dialog form
+			// Initialize model for New Theme dialog form (baseTheme is filled in once
+			// available versions/base themes are loaded from the backend)
 			this.getView().setModel(new JSONModel({
 				name: "",
 				themeId: "",
-				baseTheme: "sap_horizon",
+				baseTheme: "",
 				description: ""
 			}), "newTheme");
 
@@ -88,7 +93,7 @@ sap.ui.define([
 		},
 
 		_loadAvailableVersions: function () {
-			// Fetch available UI5 versions from backend
+			// Fetch available UI5 versions (with their supported base themes) from backend
 			const oVersionsModel = this.getView().getModel("versions");
 
 			fetch("/api/available-versions", {
@@ -100,13 +105,39 @@ sap.ui.define([
 					// Update versions model
 					oVersionsModel.setData({
 						versions: data.versions,
-						selectedVersion: data.defaultVersion
+						selectedVersion: data.defaultVersion,
+						selectedVersionBaseThemes: []
 					});
+					this._updateSelectedVersionBaseThemes();
 				})
 				.catch(error => {
 					console.error("Error loading available versions:", error);
 					MessageBox.error("Failed to load available UI5 versions: " + error.message);
 				});
+		},
+
+		// Keeps versions>/selectedVersionBaseThemes in sync with versions>/selectedVersion,
+		// and resets newTheme>/baseTheme if it's no longer valid for the new selection
+		// (e.g. switching from a version that has "Horizon Dark" to one that doesn't).
+		_updateSelectedVersionBaseThemes: function () {
+			const oVersionsModel = this.getView().getModel("versions");
+			const sSelectedVersion = oVersionsModel.getProperty("/selectedVersion");
+			const aVersions = oVersionsModel.getProperty("/versions") || [];
+			const oVersion = aVersions.find(v => v.key === sSelectedVersion);
+			const aBaseThemes = (oVersion && oVersion.baseThemes) || [];
+
+			oVersionsModel.setProperty("/selectedVersionBaseThemes", aBaseThemes);
+
+			const oNewThemeModel = this.getView().getModel("newTheme");
+			const sCurrentBaseTheme = oNewThemeModel.getProperty("/baseTheme");
+			const bStillValid = aBaseThemes.some(oBaseTheme => oBaseTheme.key === sCurrentBaseTheme);
+			if (!bStillValid) {
+				oNewThemeModel.setProperty("/baseTheme", aBaseThemes.length > 0 ? aBaseThemes[0].key : "");
+			}
+		},
+
+		onNewThemeUi5VersionChange: function () {
+			this._updateSelectedVersionBaseThemes();
 		},
 
 		onThemePress: function (oEvent) {
@@ -181,6 +212,10 @@ sap.ui.define([
 			const sUi5Version = this.getView().getModel("versions").getProperty("/selectedVersion");
 
 			// Validate
+			if (!sUi5Version || !sBaseTheme) {
+				MessageBox.error("No Theme Builder is currently available. Please try again in a moment.");
+				return;
+			}
 			if (!sName) {
 				MessageBox.error("Please enter a display name");
 				return;
@@ -244,10 +279,11 @@ sap.ui.define([
 		},
 
 		_resetNewThemeDialog: function () {
+			const aBaseThemes = this.getView().getModel("versions").getProperty("/selectedVersionBaseThemes") || [];
 			this.getView().getModel("newTheme").setData({
 				name: "",
 				themeId: "",
-				baseTheme: "sap_horizon",
+				baseTheme: aBaseThemes.length > 0 ? aBaseThemes[0].key : "",
 				description: ""
 			});
 		},

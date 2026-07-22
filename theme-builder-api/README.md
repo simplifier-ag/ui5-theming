@@ -148,9 +148,11 @@ Returns default colors for a base theme.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3001` | Server port |
-| `UI5_VERSION` | — | UI5 version identifier (for logging) |
+| `UI5_VERSION` | — | UI5 version identifier (for logging, and what's advertised when self-registering) |
 | `NODE_ENV` | `development` | Node environment |
 | `SHARED_DIR` | `../theme-designer-app/server/data/shared` | Path to uploaded files (images); must match the Designer's `SHARED_DIR` |
+| `DESIGNER_URL` | — | Base URL of the Designer's API server (e.g. `http://theme-designer:3000`). If unset, self-registration is skipped and the builder runs standalone. |
+| `SELF_URL` | — | Base URL at which *this* builder instance is reachable by the Designer (e.g. `http://theme-builder-1-96:3000`). Required for self-registration. |
 
 ## Docker Build
 
@@ -162,15 +164,16 @@ docker build --build-arg UI5_VERSION=1.96.40 -t theme-builder-api:1.96.40 .
 docker build --build-arg UI5_VERSION=1.120.42 -t theme-builder-api:1.120.42 .
 ```
 
-In `docker-compose.yml`, each version runs as a separate service (`theme-builder-1-96`, `theme-builder-1-120`, `theme-builder-1-136`) on port 3000 internally. The Designer App routes to the correct instance based on the selected UI5 version.
+In `docker-compose.yml`, each version runs as a separate service (e.g. `theme-builder-1-96`, `theme-builder-1-148`) on port 3000 internally. Each instance self-registers with the Designer over socket.io (using `DESIGNER_URL`/`SELF_URL`), so the Designer routes to the correct instance based on the selected UI5 version without any static configuration on its side.
 
 ## Adding a New UI5 Version
 
 1. Add the version to `setup.sh`
 2. Test locally: `./setup.sh {version} && npm start`
-3. Add a new service to `docker-compose.yml`
+3. Add a new service to `docker-compose.yml` with its own `UI5_VERSION`, `DESIGNER_URL`, and `SELF_URL`
 4. Add a new builder image to the Azure Pipeline
-5. Update `THEME_BUILDER_URLS` in the Designer App config
+
+That's it — no Designer-side config change needed, the new instance shows up automatically once it registers.
 
 ## Files
 

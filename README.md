@@ -138,10 +138,23 @@ SHARED_DIR=/path/to/shared          # Uploaded images — must be the same path 
 
 ### Theme Builder Routing
 
+Builder instances self-register with the Designer over a socket.io connection —
+no static URL map is configured on the Designer side. Each Builder instance
+needs two extra env vars pointing back at the Designer and at itself:
+
 ```bash
-THEME_BUILDER_URLS='{"1.96.40":"http://theme-builder-1-96:3000","1.120.42":"http://theme-builder-1-120:3000"}'
-DEFAULT_UI5_VERSION=1.96.40
+# On each theme-builder-api instance:
+DESIGNER_URL=http://theme-designer:3000   # how this builder reaches the Designer
+SELF_URL=http://theme-builder-1-96:3000   # how the Designer can reach this builder
+
+# On the Designer:
+DEFAULT_UI5_VERSION=1.96.40                # preferred default; falls back to the
+                                            # first currently-registered version if unset
 ```
+
+Because builders register themselves (and reconnect automatically), the
+Designer can be restarted without needing to restart any Builder, and adding a
+new UI5 version is just a new Builder service — no Designer-side config change.
 
 ### Other
 

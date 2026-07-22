@@ -14,7 +14,7 @@ const AdmZip = require('adm-zip');
 const passport = require('passport');
 const session = require('express-session');
 const { Strategy: OpenIDConnectStrategy } = require('passport-openidconnect');
-const BuilderRouter = require('./router');
+const BuilderRegistry = require('./builder-registry');
 const { statements, fileStatements, initialize } = require('./database');
 
 // Directory for shared files between theme-designer and theme-builder (uploaded images etc.)
@@ -28,8 +28,8 @@ function getThemeFilesDir(themeDbId) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Initialize Theme Builder Router for version-specific compilation
-const builderRouter = new BuilderRouter();
+// Registry of connected Theme Builder API instances (they self-register via socket.io)
+const builderRegistry = new BuilderRegistry();
 
 // Trust proxy - required for secure cookies behind reverse proxy (Traefik/nginx)
 // This enables Express to trust X-Forwarded-* headers
@@ -247,18 +247,13 @@ app.get('/api/user', (req, res) => {
 // Theme Management API (CRUD)
 // ========================================
 
-// GET /api/available-versions - Get available UI5 versions from THEME_BUILDER_URLS
+// GET /api/available-versions - Get UI5 versions currently registered by connected Builders,
+// each with the base themes that Builder instance supports
 app.get('/api/available-versions', (req, res) => {
 	try {
-		const builderUrls = JSON.parse(process.env.THEME_BUILDER_URLS || '{}');
-		const versions = Object.keys(builderUrls).map(version => ({
-			key: version,
-			text: `OpenUI5 ${version}`
-		}));
-
 		res.json({
-			versions,
-			defaultVersion: process.env.DEFAULT_UI5_VERSION || '1.96.40'
+			versions: builderRegistry.getAvailableVersionsWithBaseThemes(),
+			defaultVersion: builderRegistry.getDefaultVersion()
 		});
 	} catch (error) {
 		console.error('[API] Error fetching available versions:', error);
@@ -270,10 +265,10 @@ app.get('/api/available-versions', (req, res) => {
 app.get('/api/theme-defaults/:baseTheme', async (req, res) => {
 	try {
 		const baseTheme = req.params.baseTheme;
-		// Use default version for theme defaults
-		const ui5Version = process.env.DEFAULT_UI5_VERSION || '1.96.40';
+		// Use the requested UI5 version if given, otherwise the registry's default
+		const ui5Version = req.query.ui5Version || builderRegistry.getDefaultVersion();
 
-		const response = await builderRouter.proxyRequest(
+		const response = await builderRegistry.proxyRequest(
 			ui5Version,
 			`/api/theme-defaults/${baseTheme}`,
 			'GET'
@@ -282,7 +277,7 @@ app.get('/api/theme-defaults/:baseTheme', async (req, res) => {
 		res.status(response.status).json(response.data);
 	} catch (error) {
 		console.error('Error fetching theme defaults:', error);
-		res.status(500).json({ error: 'Failed to fetch theme defaults', details: error.message });
+		res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Failed to fetch theme defaults', details: error.message });
 	}
 });
 
@@ -655,7 +650,7 @@ app.post('/api/preview-compile', ensureAuthenticated, async (req, res) => {
 		const { version, ui5Version } = req.body;
 		const resolvedVersion = version || ui5Version;
 
-		const response = await builderRouter.proxyRequest(
+		const response = await builderRegistry.proxyRequest(
 			resolvedVersion,
 			'/api/preview-compile',
 			'POST',
@@ -664,7 +659,7 @@ app.post('/api/preview-compile', ensureAuthenticated, async (req, res) => {
 		res.status(response.status).json(response.data);
 	} catch (error) {
 		console.error('[Preview Compile Proxy] Error:', error);
-		res.status(500).json({ error: 'Preview compilation failed' });
+		res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Preview compilation failed' });
 	}
 });
 
@@ -672,7 +667,7 @@ app.post('/api/preview-compile', ensureAuthenticated, async (req, res) => {
 app.get('/api/preview-page', ensureAuthenticated, async (req, res) => {
 	try {
 		const { key, version } = req.query;
-		const response = await builderRouter.proxyRequest(
+		const response = await builderRegistry.proxyRequest(
 			version,
 			`/api/preview-page?key=${key}`,
 			'GET'
@@ -681,7 +676,7 @@ app.get('/api/preview-page', ensureAuthenticated, async (req, res) => {
 		res.status(response.status).send(response.data);
 	} catch (error) {
 		console.error('[Preview Page Proxy] Error:', error);
-		res.status(500).send('<html><body>Preview compilation failed</body></html>');
+		res.status(error.statusCode || 500).send(`<html><body>${error.statusCode ? error.message : 'Preview compilation failed'}</body></html>`);
 	}
 });
 
@@ -689,7 +684,7 @@ app.get('/api/preview-page', ensureAuthenticated, async (req, res) => {
 app.get('/api/preview-resources/:version/:cacheKey/*', async (req, res) => {
 	try {
 		const subPath = `${req.params.cacheKey}/${req.params[0]}`;
-		const response = await builderRouter.proxyRequest(
+		const response = await builderRegistry.proxyRequest(
 			req.params.version,
 			`/api/preview-resources/${subPath}`,
 			'GET'
@@ -697,7 +692,7 @@ app.get('/api/preview-resources/:version/:cacheKey/*', async (req, res) => {
 		res.setHeader('Content-Type', response.headers['content-type'] || 'text/css');
 		res.status(response.status).send(response.data);
 	} catch (error) {
-		res.status(500).send('/* Preview resource proxy error */');
+		res.status(error.statusCode || 500).send(`/* ${error.statusCode ? error.message : 'Preview resource proxy error'} */`);
 	}
 });
 
@@ -801,7 +796,7 @@ app.post('/api/compile-theme', ensureAuthenticated, async (req, res) => {
 		}
 
 		// Proxy to builder — builder reads files from shared volume, handles LESS vars + ZIP
-		const response = await builderRouter.proxyRequest(
+		const response = await builderRegistry.proxyRequest(
 			ui5Version,
 			'/api/compile-theme',
 			'POST',
@@ -818,8 +813,8 @@ app.post('/api/compile-theme', ensureAuthenticated, async (req, res) => {
 
 	} catch (error) {
 		console.error('[Compile Proxy] Error:', error);
-		res.status(500).json({
-			error: 'Theme compilation failed',
+		res.status(error.statusCode || 500).json({
+			error: error.statusCode ? error.message : 'Theme compilation failed',
 			message: error.message
 		});
 	}
@@ -832,10 +827,12 @@ app.get('/api/health', (req, res) => {
 
 initialize()
     .then(() => {
-        app.listen(PORT, () => {
+        const httpServer = app.listen(PORT, () => {
             console.log(`Theme Designer API running on port ${PORT}`);
             console.log(`Health check: http://localhost:${PORT}/api/health`);
         });
+        // Builders self-register on this same HTTP server via socket.io
+        builderRegistry.attach(httpServer);
     })
     .catch((err) => {
         console.error('[DB] Initialization failed:', err);
