@@ -20,6 +20,9 @@ tmp/
 .claude
 CLAUDE.md
 docker-compose.yml
+.mcp.json
+opencode.json
+opencode.jsonc
 
 # Theme Designer temporary files
 server/temp/
