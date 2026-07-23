@@ -13,19 +13,15 @@ yarn-error.log*
 node_modules/
 
 .DS_Store
-.env
 tmp/
 
 # Internal documentation and configuration
 .claude
-CLAUDE.md
-docker-compose.yml
 .mcp.json
 opencode.json
 opencode.jsonc
 
 # Theme Designer temporary files
-server/temp/
 theme-designer-app/server/temp/
 theme-builder-api/temp/
 *.zip
@@ -37,7 +33,7 @@ theme-designer-app/server/data/
 *.db-wal
 
 # Local Docker Data
-docker-data/
+docker/data/
 
 # IDE specific files
 .idea/
