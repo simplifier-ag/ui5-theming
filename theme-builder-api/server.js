@@ -96,22 +96,11 @@ function buildCoreExtraContent(fontFiles, backgroundImage, imageFiles) {
 	return content;
 }
 
-function getThemeDefaults(baseTheme) {
-	const defaults = {
-		sap_horizon:      { brandColor: '#0070f2', focusColor: '#0032a5', shellColor: '#ffffff' },
-		sap_fiori_3:      { brandColor: '#0a6ed1', focusColor: '#000000', shellColor: '#354a5f' },
-		sap_fiori_3_dark: { brandColor: '#0a6ed1', focusColor: '#0a6ed1', shellColor: '#29313a' },
-		sap_fiori_3_hcb:  { brandColor: '#ffffff', focusColor: '#ffffff', shellColor: '#000000' },
-		sap_fiori_3_hcw:  { brandColor: '#000000', focusColor: '#000000', shellColor: '#ffffff' }
-	};
-	return defaults[baseTheme] || defaults.sap_horizon;
-}
-
 /**
  * Validates and resolves all shared theme parameters from a request body.
  * Throws an error with statusCode=400 on invalid input.
  */
-function resolveThemeParams(body) {
+async function resolveThemeParams(body) {
 	const { baseTheme, brandColor, focusColor, shellColor, customCss = '', backgroundImage = '', files = [] } = body;
 
 	if (!VALID_BASE_THEMES.includes(baseTheme)) {
@@ -120,7 +109,7 @@ function resolveThemeParams(body) {
 		throw err;
 	}
 
-	const def = getThemeDefaults(baseTheme);
+	const def = await themeBuilder.extractThemeDefaults(baseTheme);
 	const resolvedBrand = brandColor || def.brandColor;
 	const resolvedFocus = focusColor || def.focusColor;
 	const resolvedShell = shellColor || def.shellColor;
@@ -255,8 +244,17 @@ app.get('/health', (req, res) => {
 	res.json({ status: 'ok', message: 'Theme Builder API is running', ui5Version: UI5_VERSION, timestamp: new Date().toISOString() });
 });
 
-app.get('/api/theme-defaults/:baseTheme', (req, res) => {
-	res.json(getThemeDefaults(req.params.baseTheme));
+app.get('/api/theme-defaults/:baseTheme', async (req, res) => {
+	const { baseTheme } = req.params;
+	if (!VALID_BASE_THEMES.includes(baseTheme)) {
+		return res.status(400).json({ error: `Invalid base theme. Must be one of: ${VALID_BASE_THEMES.join(', ')}` });
+	}
+	try {
+		res.json(await themeBuilder.extractThemeDefaults(baseTheme));
+	} catch (error) {
+		console.error(`[Theme Defaults] Error extracting defaults for ${baseTheme}:`, error);
+		res.status(500).json({ error: 'Failed to determine theme defaults', details: error.message });
+	}
 });
 
 /**
@@ -266,7 +264,7 @@ app.get('/api/theme-defaults/:baseTheme', (req, res) => {
  */
 app.post('/api/preview-compile', async (req, res) => {
 	try {
-		const { baseTheme, brandColor, focusColor, shellColor, baseLessContent, coreExtraContent, customCss, imageFiles, fontFiles, imageParams, files } = resolveThemeParams(req.body);
+		const { baseTheme, brandColor, focusColor, shellColor, baseLessContent, coreExtraContent, customCss, imageFiles, fontFiles, imageParams, files } = await resolveThemeParams(req.body);
 
 		const cacheKey = getCacheKey({
 			baseTheme, brandColor, focusColor, shellColor,
@@ -352,7 +350,7 @@ app.post('/api/compile-theme', async (req, res) => {
 			return res.status(400).json({ error: 'Missing required parameters: themeId, themeName' });
 		}
 
-		const { baseTheme, brandColor, focusColor, shellColor, customCss, backgroundImage, baseLessContent, coreExtraContent, imageFiles, fontFiles, imageParams } = resolveThemeParams(req.body);
+		const { baseTheme, brandColor, focusColor, shellColor, customCss, backgroundImage, baseLessContent, coreExtraContent, imageFiles, fontFiles, imageParams } = await resolveThemeParams(req.body);
 
 		console.log(`[Export] UI5 ${UI5_VERSION} — ${themeId} (${themeName}), base: ${baseTheme}, brand: ${brandColor}, files: ${imageFiles.length} images / ${fontFiles.length} fonts`);
 

@@ -3,14 +3,57 @@ const path = require('path');
 const fs = require('fs').promises;
 const fssync = require('fs');
 
-const THEME_LIB_MAP = {
-	'sap_horizon':      'themelib_sap_horizon',
-	'sap_fiori_3':      'themelib_sap_fiori_3',
-	'sap_fiori_3_dark': 'themelib_sap_fiori_3',
-	'sap_fiori_3_hcb':  'themelib_sap_fiori_3',
-	'sap_fiori_3_hcw':  'themelib_sap_fiori_3'
-};
+/**
+ * Discovers which base themes this builder can actually compile, purely from
+ * what's installed in node_modules — no hardcoded list of theme ids.
+ *
+ * A themelib package (@openui5/themelib_*) can contain a folder per potential
+ * variant under sap/ui/core/themes/, but that folder only represents a real,
+ * compilable base theme if it has its own library.source.less directly inside.
+ * Some variants (e.g. sap_horizon_dark on older UI5 versions) only ship a
+ * fonts/ stub folder without library.source.less — those are NOT usable yet
+ * and must be excluded.
+ *
+ * Returns a map of { [baseThemeId]: themelibPackageName }.
+ */
+function discoverThemeLibMap() {
+	const openui5Dir = path.join(__dirname, 'node_modules', '@openui5');
+	const map = {};
 
+	let themeLibNames;
+	try {
+		themeLibNames = fssync.readdirSync(openui5Dir, { withFileTypes: true })
+			.filter(entry => entry.isDirectory() && entry.name.startsWith('themelib_'))
+			.map(entry => entry.name)
+			.sort();
+	} catch (error) {
+		console.warn(`Could not read ${openui5Dir}: ${error.message}`);
+		return map;
+	}
+
+	for (const themeLibName of themeLibNames) {
+		const coreThemesDir = path.join(openui5Dir, themeLibName, 'src/sap/ui/core/themes');
+		let variantNames;
+		try {
+			variantNames = fssync.readdirSync(coreThemesDir, { withFileTypes: true })
+				.filter(entry => entry.isDirectory())
+				.map(entry => entry.name);
+		} catch {
+			continue; // package doesn't have a sap.ui.core theme dir at all — skip
+		}
+
+		for (const variantName of variantNames) {
+			const librarySourcePath = path.join(coreThemesDir, variantName, 'library.source.less');
+			if (fssync.existsSync(librarySourcePath)) {
+				map[variantName] = themeLibName;
+			}
+		}
+	}
+
+	return map;
+}
+
+const THEME_LIB_MAP = discoverThemeLibMap();
 const VALID_BASE_THEMES = Object.keys(THEME_LIB_MAP);
 
 const LIBRARIES = [
@@ -35,6 +78,10 @@ const LIBRARIES = [
 class ThemeBuilder {
 	constructor() {
 		this.builder = new LessOpenUI5.Builder();
+		// baseTheme -> { brandColor, focusColor, shellColor }. Safe to cache for the
+		// lifetime of the process: node_modules (and thus the theme sources) never
+		// change while this builder instance is running.
+		this._defaultsCache = new Map();
 	}
 
 	// Returns the src root of the themelib npm package for a given base theme.
@@ -42,6 +89,73 @@ class ThemeBuilder {
 		const themeLib = THEME_LIB_MAP[baseTheme];
 		if (!themeLib) throw new Error(`Unsupported base theme: ${baseTheme}. Supported: ${VALID_BASE_THEMES.join(', ')}`);
 		return path.join(__dirname, 'node_modules/@openui5', themeLib, 'src');
+	}
+
+	/**
+	 * Determines the real default brandColor/focusColor/shellColor for a base
+	 * theme by asking the actual LESS compiler to resolve @sapBrandColor /
+	 * @sapContent_FocusColor / @sapShellColor from that theme's own source —
+	 * robust against variable aliases and LESS functions (contrast(), darken(),
+	 * etc.), which a naive text search can't resolve correctly.
+	 */
+	async extractThemeDefaults(baseTheme) {
+		if (this._defaultsCache.has(baseTheme)) {
+			return this._defaultsCache.get(baseTheme);
+		}
+
+		const themeLibPath = this.getThemeLibPath(baseTheme);
+		const corePath = LIBRARIES.find(l => l.name === 'sap.ui.core').path;
+
+		const probeContent = `@import "${corePath}/${baseTheme}/library.source.less";
+.theme-designer-color-probe {
+	brand-color: @sapBrandColor;
+	focus-color: @sapContent_FocusColor;
+	shell-color: @sapShellColor;
+}
+`;
+
+		const tempProbeFile = path.join(__dirname, 'temp', `probe_${baseTheme}_${process.pid}_${Date.now()}.less`);
+		await fs.mkdir(path.dirname(tempProbeFile), { recursive: true });
+		fssync.writeFileSync(tempProbeFile, probeContent);
+
+		try {
+			const result = await this.builder.build({
+				lessInputPath: path.basename(tempProbeFile),
+				rootPaths: [
+					path.dirname(tempProbeFile),
+					themeLibPath,
+					...LIBRARIES.map(l => path.join(__dirname, 'node_modules/@openui5', l.name, 'src'))
+				],
+				library: { name: 'sap.ui.core' },
+				rtl: false
+			});
+
+			const blockMatch = result.css.match(/\.theme-designer-color-probe\s*\{([^}]*)\}/);
+			if (!blockMatch) {
+				throw new Error(`Could not locate color probe output for base theme "${baseTheme}"`);
+			}
+			const block = blockMatch[1];
+
+			const extract = (prop) => {
+				const m = block.match(new RegExp(`${prop}\\s*:\\s*([^;]+);`));
+				return m ? m[1].trim() : null;
+			};
+
+			const defaults = {
+				brandColor: extract('brand-color'),
+				focusColor: extract('focus-color'),
+				shellColor: extract('shell-color')
+			};
+
+			for (const [key, value] of Object.entries(defaults)) {
+				if (!value) throw new Error(`Could not determine default "${key}" for base theme "${baseTheme}"`);
+			}
+
+			this._defaultsCache.set(baseTheme, defaults);
+			return defaults;
+		} finally {
+			try { fssync.unlinkSync(tempProbeFile); } catch { /* ignore */ }
+		}
 	}
 
 	// Returns the theme-specific fonts dir (72-* fonts).

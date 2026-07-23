@@ -116,36 +116,17 @@ const getUserId = (req) => {
 	return req.user ? req.user.id : 'anonymous';
 };
 
-// Get default theme colors for a base theme
-const getThemeDefaults = (baseTheme) => {
-	const defaults = {
-		sap_horizon: {
-			brandColor: '#0070f2',
-			focusColor: '#0032a5',
-			shellColor: '#ffffff'
-		},
-		sap_fiori_3: {
-			brandColor: '#0a6ed1',
-			focusColor: '#000000',
-			shellColor: '#354a5f'
-		},
-		sap_fiori_3_dark: {
-			brandColor: '#0a6ed1',
-			focusColor: '#0a6ed1',
-			shellColor: '#29313a'
-		},
-		sap_fiori_3_hcb: {
-			brandColor: '#ffffff',
-			focusColor: '#ffffff',
-			shellColor: '#000000'
-		},
-		sap_fiori_3_hcw: {
-			brandColor: '#000000',
-			focusColor: '#000000',
-			shellColor: '#ffffff'
-		}
-	};
-	return defaults[baseTheme] || defaults.sap_horizon;
+// Get default theme colors for a base theme — asks the Builder registered for
+// that UI5 version, which derives them from the actual theme-lib LESS sources
+// (single source of truth, no hardcoded/duplicated color map here anymore).
+const getThemeDefaults = async (ui5Version, baseTheme) => {
+	const response = await builderRegistry.proxyRequest(ui5Version, `/api/theme-defaults/${baseTheme}`, 'GET');
+	if (response.status >= 400) {
+		const err = new Error((response.data && response.data.error) || 'Failed to fetch theme defaults');
+		err.statusCode = response.status;
+		throw err;
+	}
+	return response.data;
 };
 
 // ========================================
@@ -239,11 +220,6 @@ app.get('/api/user', (req, res) => {
 });
 
 // ========================================
-// Helper Functions
-// ========================================
-// (getThemeDefaults removed - now fetched from Theme Builder API)
-
-// ========================================
 // Theme Management API (CRUD)
 // ========================================
 
@@ -319,12 +295,11 @@ app.post('/api/themes', ensureAuthenticated, async (req, res) => {
 			return res.status(400).json({ error: 'Missing required fields: themeId, name, baseTheme' });
 		}
 
+		// Use provided ui5Version or fall back to the registry's default
+		const themeUi5Version = ui5Version || builderRegistry.getDefaultVersion();
 
-		// Get base-theme-specific defaults
-		const defaults = getThemeDefaults(baseTheme);
-
-		// Use provided ui5Version or fall back to default
-		const themeUi5Version = ui5Version || process.env.DEFAULT_UI5_VERSION || '1.96.40';
+		// Get base-theme-specific defaults from the Builder registered for that version
+		const defaults = await getThemeDefaults(themeUi5Version, baseTheme);
 
 		const now = new Date().toISOString();
 		const result = await statements.createTheme.run({
@@ -347,7 +322,7 @@ app.post('/api/themes', ensureAuthenticated, async (req, res) => {
 		res.status(201).json(newTheme);
 	} catch (error) {
 		console.error('Error creating theme:', error);
-		res.status(500).json({ error: 'Failed to create theme', details: error.message });
+		res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Failed to create theme', details: error.message });
 	}
 });
 
@@ -370,11 +345,12 @@ app.put('/api/themes/:id', ensureAuthenticated, async (req, res) => {
 		}
 
 
-		// Get base-theme-specific defaults
-		const defaults = getThemeDefaults(baseTheme);
+		// Use provided ui5Version or fall back to existing or the registry's default
+		const themeUi5Version = ui5Version || existingTheme.ui5Version || builderRegistry.getDefaultVersion();
 
-		// Use provided ui5Version or fall back to existing or default
-		const themeUi5Version = ui5Version || existingTheme.ui5Version || process.env.DEFAULT_UI5_VERSION || '1.96.40';
+		// Get base-theme-specific defaults from the Builder registered for that version
+		// (only shellColor can actually fall back to it here — brandColor/focusColor are required above)
+		const defaults = await getThemeDefaults(themeUi5Version, baseTheme);
 
 		const now = new Date().toISOString();
 		await statements.updateTheme.run({
@@ -397,7 +373,7 @@ app.put('/api/themes/:id', ensureAuthenticated, async (req, res) => {
 		res.json(updatedTheme);
 	} catch (error) {
 		console.error('Error updating theme:', error);
-		res.status(500).json({ error: 'Failed to update theme', details: error.message });
+		res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Failed to update theme', details: error.message });
 	}
 });
 
@@ -434,7 +410,7 @@ app.post('/api/import-theme', ensureAuthenticated, zipUpload.single('themeZip'),
 		console.log('Importing theme from ZIP:', req.file.originalname);
 
 		// Get UI5 version from request body (sent via FormData)
-		const ui5Version = req.body.ui5Version || '1.96.40';
+		const ui5Version = req.body.ui5Version || builderRegistry.getDefaultVersion();
 		console.log('Import UI5 version:', ui5Version);
 
 		// Parse ZIP from memory buffer
@@ -469,8 +445,8 @@ app.post('/api/import-theme', ensureAuthenticated, zipUpload.single('themeZip'),
 		const coreParamsPath = `UI5/sap/ui/core/themes/${themeId}/library-parameters.json`;
 		const coreParamsEntry = zipEntries.find(entry => entry.entryName === coreParamsPath);
 
-		// Get base-theme-specific defaults
-		const defaults = getThemeDefaults(baseTheme);
+		// Get base-theme-specific defaults from the Builder registered for that version
+		const defaults = await getThemeDefaults(ui5Version, baseTheme);
 		let brandColor = defaults.brandColor;
 		let focusColor = defaults.focusColor;
 		let shellColor = defaults.shellColor;
@@ -636,7 +612,7 @@ app.post('/api/import-theme', ensureAuthenticated, zipUpload.single('themeZip'),
 		res.json(newTheme);
 	} catch (error) {
 		console.error('Error importing theme:', error);
-		res.status(500).json({ error: 'Failed to import theme', details: error.message });
+		res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Failed to import theme', details: error.message });
 	}
 });
 
