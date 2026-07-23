@@ -158,11 +158,19 @@ class ThemeBuilder {
 		}
 	}
 
-	// Returns the theme-specific fonts dir (72-* fonts).
-	// Variants (dark/hcb/hcw) fall back to their root theme's fonts.
+	// Returns the theme-specific fonts dir (72-*, SAP-icons, ...).
+	// Some UI5 versions ship variants (dark/hcb/hcw) with their own fonts/ dir
+	// (used as-is here); others only have a fonts/ stub or none at all and rely
+	// entirely on the root theme's fonts — those fall back to the root theme.
 	getFontsDir(baseTheme) {
 		const themeLib = THEME_LIB_MAP[baseTheme];
 		if (!themeLib) throw new Error(`Unsupported base theme: ${baseTheme}`);
+
+		const ownFontsDir = path.join(__dirname, 'node_modules/@openui5', themeLib, 'src/sap/ui/core/themes', baseTheme, 'fonts');
+		if (fssync.existsSync(ownFontsDir) && fssync.readdirSync(ownFontsDir).length > 0) {
+			return ownFontsDir;
+		}
+
 		const fontTheme = baseTheme.replace(/_(dark|hcb|hcw)$/, '');
 		return path.join(__dirname, 'node_modules/@openui5', themeLib, 'src/sap/ui/core/themes', fontTheme, 'fonts');
 	}
@@ -179,6 +187,13 @@ class ThemeBuilder {
 	// every library we rewrite those absolute paths to the correct relative path back
 	// to sap.ui.core's theme dir. For sap.ui.core itself that collapses to 'images/' /
 	// 'fonts/' (same dir); for sap.m it becomes '../../../ui/core/themes/{themeId}/...'.
+	//
+	// Font references can point at the base theme in three different ways depending
+	// on the UI5 version and variant: the exact variant itself (e.g. sap_horizon_dark,
+	// on versions where that variant ships its own fonts/ dir), the stripped root
+	// variant (e.g. sap_horizon, on versions where dark/hcb/hcw only have a fonts/
+	// stub or none at all), or the shared 'base' dir (SAP-icons on most versions).
+	// All three prefixes are rewritten so either convention resolves correctly.
 	fixAssetPaths(css, baseTheme, themeId, libraryName = 'sap.ui.core') {
 		const fontTheme = baseTheme.replace(/_(dark|hcb|hcw)$/, '');
 		const coreThemePrefix = (theme) => `sap/ui/core/themes/${theme}/`;
@@ -191,6 +206,7 @@ class ThemeBuilder {
 		const corePrefix = relToCore ? relToCore + '/' : '';
 
 		let result = css;
+		result = fix(result, `${coreThemePrefix(baseTheme)}fonts/`, `${corePrefix}fonts/`);
 		result = fix(result, `${coreThemePrefix(fontTheme)}fonts/`, `${corePrefix}fonts/`);
 		result = fix(result, `${coreThemePrefix('base')}fonts/`,    `${corePrefix}fonts/`);
 		result = fix(result, `${coreThemePrefix(themeId)}fonts/`,   `${corePrefix}fonts/`);
