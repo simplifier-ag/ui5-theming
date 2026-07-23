@@ -26,7 +26,7 @@
 					<Label text="UI5 Version" required="true" />
 					<Select
 						id="ui5VersionImportSelect"
-						selectedKey="{versions>/selectedVersion}"
+						selectedKey="{importDialog>/selectedVersion}"
 						required="true"
 						items="{versions>/versions}">
 						<core:Item key="{versions>key}" text="{versions>text}" />

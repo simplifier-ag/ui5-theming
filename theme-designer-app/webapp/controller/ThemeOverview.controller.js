@@ -15,10 +15,14 @@ sap.ui.define([
 			});
 			this.getView().setModel(oModel, "themeList");
 
-			// Initialize model for UI5 versions (shared by NewTheme and Import dialogs).
-			// "versions" entries now carry their own "baseThemes" (as reported by each
-			// registered Builder); "selectedVersionBaseThemes" holds the ones matching
-			// the currently selected version, kept in sync by _updateSelectedVersionBaseThemes.
+			// Initialize model for the raw list of available UI5 versions (shared,
+			// read-only, by NewTheme and Import dialogs). "selectedVersion" here is
+			// the NewTheme dialog's OWN selection — see the comment on "importDialog"
+			// below for why each dialog now has its own selectedVersion instead of
+			// sharing one: sharing it meant selecting a version in one dialog didn't
+			// refresh state (like the base theme list) owned by the other dialog.
+			// "selectedVersionBaseThemes" holds the base themes matching versions>/selectedVersion,
+			// kept in sync by _updateSelectedVersionBaseThemes (NewTheme dialog only).
 			const oVersionsModel = new JSONModel({
 				versions: [],
 				selectedVersion: "",
@@ -35,11 +39,15 @@ sap.ui.define([
 				description: ""
 			}), "newTheme");
 
-			// Initialize model for Import dialog state
+			// Initialize model for Import dialog state. selectedVersion is its own,
+			// independent from versions>/selectedVersion (used by the New Theme dialog)
+			// so picking a version here doesn't need to (and can't) affect the other
+			// dialog's state, and vice versa.
 			this.getView().setModel(new JSONModel({
 				selectedFile: null,
 				selectedFileName: "No file selected",
-				importReady: false
+				importReady: false,
+				selectedVersion: ""
 			}), "importDialog");
 
 			// Attach to routing to clear selection when returning to overview
@@ -102,13 +110,16 @@ sap.ui.define([
 			})
 				.then(response => response.json())
 				.then(data => {
-					// Update versions model
+					// Update versions model (New Theme dialog's own selectedVersion)
 					oVersionsModel.setData({
 						versions: data.versions,
 						selectedVersion: data.defaultVersion,
 						selectedVersionBaseThemes: []
 					});
 					this._updateSelectedVersionBaseThemes();
+
+					// Import dialog has its own, independent selectedVersion
+					this.getView().getModel("importDialog").setProperty("/selectedVersion", data.defaultVersion);
 				})
 				.catch(error => {
 					console.error("Error loading available versions:", error);
@@ -343,7 +354,7 @@ sap.ui.define([
 				return;
 			}
 
-			const ui5Version = this.getView().getModel("versions").getProperty("/selectedVersion");
+			const ui5Version = oImportModel.getProperty("/selectedVersion");
 
 			// Create FormData to upload the file
 			const formData = new FormData();
@@ -393,11 +404,13 @@ sap.ui.define([
 		},
 
 		onImportDialogAfterClose: function () {
-			this.getView().getModel("importDialog").setData({
-				selectedFile: null,
-				selectedFileName: "No file selected",
-				importReady: false
-			});
+			// Reset only the file-selection state — selectedVersion is intentionally
+			// left as-is so the chosen UI5 version is remembered for next time
+			// (same behavior as the New Theme dialog's version selection).
+			const oImportModel = this.getView().getModel("importDialog");
+			oImportModel.setProperty("/selectedFile", null);
+			oImportModel.setProperty("/selectedFileName", "No file selected");
+			oImportModel.setProperty("/importReady", false);
 		},
 
 
